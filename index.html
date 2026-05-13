@@ -235,44 +235,76 @@
     }
 
     function drawPlayer() {
-      const hitTint = state.hitFlash > 0 ? (state.hitFlash % 4 < 2 ? '#ff5f5f' : '#ffd3d3') : '#64f4a3';
+      const hitTint = state.hitFlash > 0 ? (state.hitFlash % 4 < 2 ? '#ff3a3a' : '#ffd3d3') : '#c92222';
       ctx.fillStyle = hitTint;
       ctx.beginPath();
-      ctx.moveTo(player.x + player.w / 2, player.y - 8);
-      ctx.lineTo(player.x + player.w, player.y + player.h);
-      ctx.lineTo(player.x + player.w * 0.75, player.y + player.h - 4);
-      ctx.lineTo(player.x + player.w * 0.25, player.y + player.h - 4);
-      ctx.lineTo(player.x, player.y + player.h);
+      ctx.moveTo(player.x + player.w / 2, player.y - 12);
+      ctx.lineTo(player.x + player.w * 0.78, player.y + player.h * 0.38);
+      ctx.lineTo(player.x + player.w, player.y + player.h + 2);
+      ctx.lineTo(player.x + player.w * 0.72, player.y + player.h * 0.84);
+      ctx.lineTo(player.x + player.w * 0.62, player.y + player.h + 8);
+      ctx.lineTo(player.x + player.w * 0.5, player.y + player.h * 0.8);
+      ctx.lineTo(player.x + player.w * 0.38, player.y + player.h + 8);
+      ctx.lineTo(player.x + player.w * 0.28, player.y + player.h * 0.84);
+      ctx.lineTo(player.x, player.y + player.h + 2);
+      ctx.lineTo(player.x + player.w * 0.22, player.y + player.h * 0.38);
       ctx.closePath();
       ctx.fill();
 
-      ctx.fillStyle = '#9ef7ff';
+      ctx.fillStyle = '#ff9b9b';
       ctx.beginPath();
-      ctx.moveTo(player.x + player.w / 2, player.y + 2);
-      ctx.lineTo(player.x + player.w * 0.64, player.y + player.h - 3);
-      ctx.lineTo(player.x + player.w * 0.36, player.y + player.h - 3);
+      ctx.moveTo(player.x + player.w * 0.5, player.y + 3);
+      ctx.lineTo(player.x + player.w * 0.62, player.y + player.h * 0.65);
+      ctx.lineTo(player.x + player.w * 0.5, player.y + player.h * 0.56);
+      ctx.lineTo(player.x + player.w * 0.38, player.y + player.h * 0.65);
       ctx.closePath();
       ctx.fill();
+
+      ctx.strokeStyle = '#ffcf66';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(player.x + player.w * 0.15, player.y + player.h * 0.82);
+      ctx.lineTo(player.x + player.w * 0.02, player.y + player.h + 8);
+      ctx.moveTo(player.x + player.w * 0.85, player.y + player.h * 0.82);
+      ctx.lineTo(player.x + player.w * 0.98, player.y + player.h + 8);
+      ctx.stroke();
     }
 
     function drawEnemies() {
       for (const e of enemies) {
         if (!e.alive) continue;
-        ctx.fillStyle = '#ff6d7a';
+        const t = performance.now() * 0.004 + e.x * 0.02;
+        const wingPulse = Math.sin(t) * 4;
+
+        ctx.strokeStyle = `hsla(${210 + Math.sin(t) * 50}, 100%, 78%, 0.75)`;
+        ctx.lineWidth = 2;
         ctx.beginPath();
-        ctx.moveTo(e.x + e.w / 2, e.y);
-        ctx.lineTo(e.x + e.w, e.y + e.h * 0.35);
-        ctx.lineTo(e.x + e.w * 0.82, e.y + e.h);
-        ctx.lineTo(e.x + e.w * 0.18, e.y + e.h);
-        ctx.lineTo(e.x, e.y + e.h * 0.35);
-        ctx.closePath();
+        ctx.ellipse(e.x + e.w / 2, e.y + e.h / 2, e.w * 0.72, e.h * 0.55, 0, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.beginPath();
+        ctx.ellipse(e.x + e.w / 2, e.y + e.h / 2, e.w * 0.95, e.h * 0.78, 0, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.fillStyle = '#ffe8c2';
+        ctx.beginPath();
+        ctx.arc(e.x + e.w / 2, e.y + e.h / 2, 5.6, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.fillStyle = '#ffc3ca';
+        ctx.fillStyle = '#282034';
         ctx.beginPath();
-        ctx.arc(e.x + e.w * 0.3, e.y + e.h * 0.5, 3, 0, Math.PI * 2);
-        ctx.arc(e.x + e.w * 0.7, e.y + e.h * 0.5, 3, 0, Math.PI * 2);
+        ctx.arc(e.x + e.w / 2, e.y + e.h / 2, 2.3, 0, Math.PI * 2);
         ctx.fill();
+
+        ctx.strokeStyle = 'hsla(40, 100%, 80%, 0.8)';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath();
+        ctx.moveTo(e.x + e.w / 2, e.y - 5 - wingPulse * 0.5);
+        ctx.quadraticCurveTo(e.x + e.w * 0.18, e.y + e.h * 0.14, e.x - 7, e.y + e.h * 0.48);
+        ctx.quadraticCurveTo(e.x + e.w * 0.18, e.y + e.h * 0.62, e.x + e.w / 2, e.y + e.h + 5);
+        ctx.moveTo(e.x + e.w / 2, e.y - 5 - wingPulse * 0.5);
+        ctx.quadraticCurveTo(e.x + e.w * 0.82, e.y + e.h * 0.14, e.x + e.w + 7, e.y + e.h * 0.48);
+        ctx.quadraticCurveTo(e.x + e.w * 0.82, e.y + e.h * 0.62, e.x + e.w / 2, e.y + e.h + 5);
+        ctx.stroke();
       }
     }
 
