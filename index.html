@@ -35,7 +35,8 @@
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
 
-    const WORLD = { w: 1800, h: 1400 };
+    const WORLD = { w: 1000000, h: 1000000 };
+    const ZOOM = 0.78;
     const state = {
       keys: {},
       score: 0,
@@ -51,6 +52,10 @@
       gunLevel: 0,
       speedLevel: 0,
       spawnTimer: 90,
+      deathOverlay: 0,
+      deathQuote: '',
+      introScroll: 0,
+      beat: 0,
       gameOver: false,
       won: false,
       flash: 0,
@@ -62,15 +67,22 @@
       stars: [],
       clouds: [],
       dt: 1,
+      audioStarted: false,
     };
 
     const ship = { x: WORLD.w / 2, y: WORLD.h / 2, vx: 0, vy: 0, angle: -Math.PI / 2, radius: 16 };
+    const proverbs = [
+      '“Even gold halos cast shadows in corrupted skies.”',
+      '“A demon with purpose outflies an angel with doubt.”',
+      '“The orbit forgives no idle soul.”',
+      '“Light is only honest when it survives the void.”',
+    ];
 
     function rand(min, max) { return Math.random() * (max - min) + min; }
     function camera() {
       return {
-        x: Math.max(0, Math.min(WORLD.w - canvas.width, ship.x - canvas.width / 2)),
-        y: Math.max(0, Math.min(WORLD.h - canvas.height, ship.y - canvas.height / 2)),
+        x: ship.x - canvas.width / (2 * ZOOM),
+        y: ship.y - canvas.height / (2 * ZOOM),
       };
     }
 
@@ -87,8 +99,8 @@
       for (let i = 0; i < count; i++) {
         const edge = Math.floor(rand(0, 4));
         const rock = {
-          x: edge < 2 ? (edge === 0 ? -18 : WORLD.w + 18) : rand(0, WORLD.w),
-          y: edge >= 2 ? (edge === 2 ? -18 : WORLD.h + 18) : rand(0, WORLD.h),
+          x: ship.x + rand(-900, 900),
+          y: ship.y + rand(-900, 900),
           vx: rand(-1.8, 1.8),
           vy: rand(-1.8, 1.8),
           angle: rand(0, Math.PI * 2),
@@ -110,6 +122,7 @@
       state.pendingLevelUps = 0;
       state.upgradeMenu = false;
       state.started = false;
+      state.introScroll = 0;
       state.shieldLevel = 0;
       state.gunLevel = 0;
       state.speedLevel = 0;
@@ -117,6 +130,8 @@
       state.gameOver = false;
       state.won = false;
       state.flash = 0;
+      state.deathOverlay = 0;
+      state.deathQuote = '';
       state.cooldown = 0;
       state.bullets = [];
       state.particles = [];
@@ -129,6 +144,31 @@
       ship.angle = -Math.PI / 2;
       spawnHeavenBackground();
       spawnRocks(6);
+    }
+
+    function startAudio() {
+      if (state.audioStarted) return;
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctxA = new AudioCtx();
+      const master = ctxA.createGain();
+      master.gain.value = 0.06;
+      master.connect(ctxA.destination);
+      const notes = [261.63, 329.63, 392.0, 523.25, 587.33, 523.25, 392.0, 329.63];
+      let step = 0;
+      setInterval(() => {
+        const osc = ctxA.createOscillator();
+        const gain = ctxA.createGain();
+        osc.type = step % 2 === 0 ? 'triangle' : 'sine';
+        osc.frequency.value = notes[step % notes.length];
+        gain.gain.setValueAtTime(0.0001, ctxA.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.08, ctxA.currentTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctxA.currentTime + 0.26);
+        osc.connect(gain); gain.connect(master);
+        osc.start(); osc.stop(ctxA.currentTime + 0.28);
+        step++;
+      }, 300);
+      state.audioStarted = true;
     }
 
     function explode(x, y, count = 24) {
@@ -161,10 +201,12 @@
 
     function update() {
       if (state.gameOver || !state.started) return;
+      if (state.deathOverlay > 0) { state.deathOverlay -= state.dt; return; }
       if (state.upgradeMenu) return;
       if (state.cooldown > 0) state.cooldown--;
       if (state.flash > 0) state.flash--;
       state.spawnTimer -= state.dt;
+      state.beat += 0.03 * state.dt;
       if (state.spawnTimer <= 0) {
         spawnRocks(1 + Math.floor(state.level / 3));
         state.spawnTimer = Math.max(30, 90 - state.level * 3 + rand(-12, 12));
@@ -196,8 +238,8 @@
       ship.vy *= 0.9935;
       ship.x += ship.vx * state.dt;
       ship.y += ship.vy * state.dt;
-      ship.x = Math.max(ship.radius, Math.min(WORLD.w - ship.radius, ship.x));
-      ship.y = Math.max(ship.radius, Math.min(WORLD.h - ship.radius, ship.y));
+      ship.x = Math.max(-500000, Math.min(500000, ship.x));
+      ship.y = Math.max(-500000, Math.min(500000, ship.y));
 
       for (const s of state.stars) { s.y += s.speed * state.dt; if (s.y > WORLD.h + 2) { s.y = -2; s.x = rand(0, WORLD.w); } }
       for (const c of state.clouds) { c.x += c.vx * state.dt; if (c.x > WORLD.w + 90) c.x = -90; }
@@ -206,7 +248,7 @@
         b.x += b.vx * state.dt;
         b.y += b.vy * state.dt;
         b.life -= state.dt;
-        if (b.x < 0 || b.x > WORLD.w || b.y < 0 || b.y > WORLD.h) b.life = -1;
+        if (Math.hypot(b.x - ship.x, b.y - ship.y) > 2600) b.life = -1;
       }
       state.bullets = state.bullets.filter(b => b.life > 0);
 
@@ -214,10 +256,7 @@
         r.x += r.vx * state.dt;
         r.y += r.vy * state.dt;
         r.angle += r.spin * state.dt;
-        if (r.x < r.r || r.x > WORLD.w - r.r) r.vx *= -1;
-        if (r.y < r.r || r.y > WORLD.h - r.r) r.vy *= -1;
-        r.x = Math.max(r.r, Math.min(WORLD.w - r.r, r.x));
-        r.y = Math.max(r.r, Math.min(WORLD.h - r.r, r.y));
+        if (Math.hypot(r.x - ship.x, r.y - ship.y) > 3600) r.dead = true;
       }
 
       for (const p of state.particles) {
@@ -255,10 +294,12 @@
           state.lives--;
           state.flash = 60;
           explode(ship.x, ship.y, 40);
-          ship.x = WORLD.w / 2;
-          ship.y = WORLD.h / 2;
+          ship.x -= Math.cos(ship.angle) * 120;
+          ship.y -= Math.sin(ship.angle) * 120;
           ship.vx = 0;
           ship.vy = 0;
+          state.deathOverlay = 120;
+          state.deathQuote = proverbs[Math.floor(Math.random() * proverbs.length)];
           if (state.lives <= 0) {
             state.gameOver = true;
             state.won = false;
@@ -292,14 +333,15 @@
     }
 
     function drawBackground(cam) {
+      const pulse = 0.5 + Math.sin(state.beat) * 0.5;
       const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
-      g.addColorStop(0, '#1e2664');
-      g.addColorStop(0.45, '#5f3bb3');
-      g.addColorStop(1, '#eb9cf7');
+      g.addColorStop(0, `hsl(${230 + pulse * 20} 60% 20%)`);
+      g.addColorStop(0.45, `hsl(${270 + pulse * 40} 55% 42%)`);
+      g.addColorStop(1, `hsl(${310 + pulse * 25} 75% 74%)`);
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      for (let i = 0; i < 8; i++) {
+      for (let i = 0; i < 12; i++) {
         ctx.strokeStyle = `hsla(${(i * 45 + performance.now() * 0.02) % 360},100%,80%,0.18)`;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
@@ -323,6 +365,10 @@
       for (const s of state.stars) {
         ctx.fillStyle = `hsla(${s.hue},100%,88%,0.9)`;
         ctx.fillRect(s.x - cam.x, s.y - cam.y, s.size, s.size);
+      }
+      for (const s of state.stars) {
+        ctx.fillStyle = `hsla(${(s.hue + 120) % 360},100%,90%,0.2)`;
+        ctx.fillRect((s.x - cam.x) * 0.6, (s.y - cam.y) * 0.6, s.size * 1.3, s.size * 1.3);
       }
     }
 
@@ -357,6 +403,15 @@
       ctx.lineTo(-5, 6);
       ctx.closePath();
       ctx.fill();
+      if (state.keys.ArrowDown || state.keys.s) {
+        ctx.fillStyle = `hsla(${200 + Math.sin(performance.now() * 0.04) * 30},100%,75%,0.9)`;
+        ctx.beginPath();
+        ctx.moveTo(-5, -18);
+        ctx.lineTo(0, -29 - Math.random() * 4);
+        ctx.lineTo(5, -18);
+        ctx.closePath();
+        ctx.fill();
+      }
 
       ctx.restore();
       if (state.shieldLevel > 0) {
@@ -463,12 +518,27 @@
         ctx.fillText('HEAVENFALL PROTOCOL', canvas.width / 2, 120);
         ctx.fillStyle = '#ffecc2';
         ctx.font = '20px Arial';
-        ctx.fillText('In the Neon Throne Sector, angelic wardens fell to corrupted code.', canvas.width / 2, 190);
-        ctx.fillText('You are the Infernal Pilot: part demon, part machine, last firewall.', canvas.width / 2, 220);
-        ctx.fillText('Harvest soul-XP. Upgrade. Purge the orbit.', canvas.width / 2, 250);
+        state.introScroll += 0.35;
+        const story = [
+          'In the Neon Throne Sector, angelic wardens fell to corrupted code.',
+          'You are the Infernal Pilot: part demon, part machine, last firewall.',
+          'Harvest soul-XP. Upgrade your shell. Purge the orbit.',
+          'Between halo and horn, only velocity remains.'
+        ];
+        for (let i = 0; i < story.length; i++) {
+          ctx.fillText(story[i], canvas.width / 2, 190 + i * 30 - (state.introScroll % 18));
+        }
         ctx.fillStyle = '#ff7ccf';
         ctx.font = '26px Arial';
         ctx.fillText('Press ENTER to Start Game', canvas.width / 2, 320);
+        ctx.textAlign = 'left';
+      } else if (state.deathOverlay > 0) {
+        ctx.fillStyle = 'rgba(0,0,0,0.88)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#f3e5c0';
+        ctx.textAlign = 'center';
+        ctx.font = '28px Georgia';
+        ctx.fillText(state.deathQuote, canvas.width / 2, canvas.height / 2);
         ctx.textAlign = 'left';
       } else if (state.gameOver) {
         ctx.fillStyle = 'rgba(16, 8, 28, 0.55)';
@@ -506,7 +576,7 @@
       state.keys[key] = true;
       if (e.key === ' ') { e.preventDefault(); shoot(); }
       if ((e.key === 'r' || e.key === 'R') && state.gameOver) resetGame();
-      if (e.key === 'Enter' && !state.started) state.started = true;
+      if (e.key === 'Enter' && !state.started) { state.started = true; startAudio(); }
       if (state.upgradeMenu && (key === '1' || key === '2' || key === '3')) {
         if (key === '1') state.shieldLevel++;
         if (key === '2') state.gunLevel = Math.min(3, state.gunLevel + 1);

@@ -2,7 +2,7 @@
 
 A tiny browser game inspired by **Asteroids** with a demonic player ship, angelic celestial enemies, rainbow explosions, and a geometric heaven-themed animated background of gold, white, clouds, and color bands.
 
-Now includes a larger map, timed enemy spawns, XP orb drops, level-ups, and upgrades.
+Now includes an effectively infinite-feeling map with camera follow, timed enemy spawns, XP orb drops, level-ups, upgrades, pulsing synth-style audio, and a scrolling story intro.
 
 ## Run
 
@@ -23,3 +23,7 @@ Then visit <http://localhost:8000>.
 - Start game from intro screen: `Enter`
 - Restart after game over: `R`
 - Choose level-up upgrades: `1` Shield, `2` Better Guns, `3` More Speed
+
+## Notes
+
+- On first start, browser audio may require user interaction before the synth pulse/melody begins.
