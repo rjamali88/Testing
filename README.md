@@ -1,6 +1,6 @@
-# Mini Invaders
+# Heavenfall Asteroids
 
-A tiny browser game inspired by Space Invaders, now with rainbow RGB-style explosion effects, a moving starfield background, angelic enemy forms, and a demonic player ship.
+A tiny browser game inspired by **Asteroids** with a demonic player ship, angelic celestial enemies, rainbow explosions, and a geometric heaven-themed animated background of gold, white, clouds, and color bands.
 
 ## Run
 
@@ -14,6 +14,7 @@ Then visit <http://localhost:8000>.
 
 ## Controls
 
-- Move: Left/Right arrows or `A` / `D`
+- Rotate: Left/Right arrows or `A` / `D`
+- Thrust: Up arrow or `W`
 - Shoot: Space
 - Restart after game over: `R`
