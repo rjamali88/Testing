@@ -1,6 +1,6 @@
 # Mini Invaders
 
-A tiny browser game inspired by Space Invaders, now with rainbow RGB-style explosion effects.
+A tiny browser game inspired by Space Invaders, now with rainbow RGB-style explosion effects, a moving starfield background, and hit flash feedback.
 
 ## Run
 

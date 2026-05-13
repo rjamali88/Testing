@@ -37,10 +37,12 @@
 
     const state = {
       keys: {},
+      stars: [],
       score: 0,
       lives: 3,
       gameOver: false,
       won: false,
+      hitFlash: 0,
       cooldown: 0,
       bullets: [],
       enemyBullets: [],
@@ -51,8 +53,18 @@
       enemyMoveInterval: 40,
     };
 
-    const player = { w: 44, h: 18, x: canvas.width / 2 - 22, y: canvas.height - 42, speed: 4.8 };
+    const player = { w: 46, h: 22, x: canvas.width / 2 - 23, y: canvas.height - 46, speed: 0.42, vx: 0 };
     const enemies = [];
+
+    function resetStars() {
+      state.stars = Array.from({ length: 80 }, () => ({
+        x: Math.random() * canvas.width,
+        y: Math.random() * canvas.height,
+        size: 1 + Math.random() * 2,
+        speed: 0.2 + Math.random() * 0.8,
+        hue: 180 + Math.random() * 160,
+      }));
+    }
 
     function resetEnemies() {
       enemies.length = 0;
@@ -75,6 +87,7 @@
       state.lives = 3;
       state.gameOver = false;
       state.won = false;
+      state.hitFlash = 0;
       state.bullets = [];
       state.enemyBullets = [];
       state.explosions = [];
@@ -82,6 +95,8 @@
       state.enemyMoveTimer = 0;
       state.enemyMoveInterval = 40;
       player.x = canvas.width / 2 - player.w / 2;
+      player.vx = 0;
+      resetStars();
       resetEnemies();
     }
 
@@ -115,11 +130,26 @@
     function update() {
       if (state.gameOver) return;
 
-      if (state.keys.ArrowLeft || state.keys.a) player.x -= player.speed;
-      if (state.keys.ArrowRight || state.keys.d) player.x += player.speed;
+      for (const s of state.stars) {
+        s.y += s.speed;
+        if (s.y > canvas.height + 2) {
+          s.y = -2;
+          s.x = Math.random() * canvas.width;
+        }
+      }
+
+      const movingLeft = state.keys.ArrowLeft || state.keys.a;
+      const movingRight = state.keys.ArrowRight || state.keys.d;
+      if (movingLeft) player.vx -= player.speed;
+      if (movingRight) player.vx += player.speed;
+      player.vx *= 0.86;
+      if (!movingLeft && !movingRight && Math.abs(player.vx) < 0.1) player.vx = 0;
+      player.vx = Math.max(-5.5, Math.min(5.5, player.vx));
+      player.x += player.vx;
       player.x = Math.max(8, Math.min(canvas.width - player.w - 8, player.x));
 
       if (state.cooldown > 0) state.cooldown--;
+      if (state.hitFlash > 0) state.hitFlash--;
 
       state.bullets.forEach(b => b.y -= b.speed);
       state.enemyBullets.forEach(b => b.y += b.speed);
@@ -182,6 +212,7 @@
         if (rectHit(b, player)) {
           b.y = canvas.height + 999;
           state.lives--;
+          state.hitFlash = 14;
           if (state.lives <= 0) {
             state.gameOver = true;
             state.won = false;
@@ -190,21 +221,58 @@
       }
     }
 
+    function drawBackground() {
+      const bg = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      bg.addColorStop(0, '#070e1f');
+      bg.addColorStop(1, '#04070f');
+      ctx.fillStyle = bg;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      for (const s of state.stars) {
+        ctx.fillStyle = `hsla(${s.hue}, 100%, 75%, 0.8)`;
+        ctx.fillRect(s.x, s.y, s.size, s.size);
+      }
+    }
+
     function drawPlayer() {
-      ctx.fillStyle = '#64f4a3';
-      ctx.fillRect(player.x, player.y, player.w, player.h);
-      ctx.fillStyle = '#a2ffd1';
-      ctx.fillRect(player.x + player.w / 2 - 5, player.y - 8, 10, 8);
+      const hitTint = state.hitFlash > 0 ? (state.hitFlash % 4 < 2 ? '#ff5f5f' : '#ffd3d3') : '#64f4a3';
+      ctx.fillStyle = hitTint;
+      ctx.beginPath();
+      ctx.moveTo(player.x + player.w / 2, player.y - 8);
+      ctx.lineTo(player.x + player.w, player.y + player.h);
+      ctx.lineTo(player.x + player.w * 0.75, player.y + player.h - 4);
+      ctx.lineTo(player.x + player.w * 0.25, player.y + player.h - 4);
+      ctx.lineTo(player.x, player.y + player.h);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = '#9ef7ff';
+      ctx.beginPath();
+      ctx.moveTo(player.x + player.w / 2, player.y + 2);
+      ctx.lineTo(player.x + player.w * 0.64, player.y + player.h - 3);
+      ctx.lineTo(player.x + player.w * 0.36, player.y + player.h - 3);
+      ctx.closePath();
+      ctx.fill();
     }
 
     function drawEnemies() {
       for (const e of enemies) {
         if (!e.alive) continue;
         ctx.fillStyle = '#ff6d7a';
-        ctx.fillRect(e.x, e.y, e.w, e.h);
+        ctx.beginPath();
+        ctx.moveTo(e.x + e.w / 2, e.y);
+        ctx.lineTo(e.x + e.w, e.y + e.h * 0.35);
+        ctx.lineTo(e.x + e.w * 0.82, e.y + e.h);
+        ctx.lineTo(e.x + e.w * 0.18, e.y + e.h);
+        ctx.lineTo(e.x, e.y + e.h * 0.35);
+        ctx.closePath();
+        ctx.fill();
+
         ctx.fillStyle = '#ffc3ca';
-        ctx.fillRect(e.x + 5, e.y + 5, 6, 6);
-        ctx.fillRect(e.x + e.w - 11, e.y + 5, 6, 6);
+        ctx.beginPath();
+        ctx.arc(e.x + e.w * 0.3, e.y + e.h * 0.5, 3, 0, Math.PI * 2);
+        ctx.arc(e.x + e.w * 0.7, e.y + e.h * 0.5, 3, 0, Math.PI * 2);
+        ctx.fill();
       }
     }
 
@@ -251,7 +319,7 @@
 
     function loop() {
       update();
-      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      drawBackground();
       drawPlayer();
       drawEnemies();
       drawBullets();
@@ -261,16 +329,20 @@
     }
 
     addEventListener('keydown', (e) => {
-      state.keys[e.key] = true;
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      state.keys[key] = true;
       if (e.key === ' ') {
         e.preventDefault();
         shoot();
       }
       if ((e.key === 'r' || e.key === 'R') && state.gameOver) resetGame();
+      if (key === 'ArrowLeft') player.vx -= 1.6;
+      if (key === 'ArrowRight') player.vx += 1.6;
     });
 
     addEventListener('keyup', (e) => {
-      state.keys[e.key] = false;
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      state.keys[key] = false;
     });
 
     resetGame();
