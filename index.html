@@ -4,6 +4,9 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Heavenfall Asteroids</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
   <style>
     :root { color-scheme: dark; }
     body {
@@ -12,7 +15,7 @@
       display: grid;
       place-items: center;
       background: #f6fbff;
-      font-family: Arial, sans-serif;
+      font-family: 'Orbitron', Arial, sans-serif;
       color: #f7f8ff;
     }
     .wrap { text-align: center; }
@@ -36,7 +39,7 @@
     const ctx = canvas.getContext('2d');
 
     const WORLD = { w: 1000000, h: 1000000 };
-    const ZOOM = 0.78;
+    const ZOOM = 0.62;
     const state = {
       keys: {},
       score: 0,
@@ -55,6 +58,7 @@
       deathOverlay: 0,
       deathQuote: '',
       introScroll: 0,
+      introPhase: 0,
       beat: 0,
       gameOver: false,
       won: false,
@@ -334,10 +338,18 @@
 
     function drawBackground(cam) {
       const pulse = 0.5 + Math.sin(state.beat) * 0.5;
+      const biomeX = Math.floor((cam.x + canvas.width * 0.5) / 1200) % 4;
+      const biomes = [
+        ['#111a3c', '#274f6c', '#78ccff'], // ice nebula
+        ['#221532', '#5b2a63', '#ff7ad8'], // violet void
+        ['#1b2a1d', '#29663d', '#90ef9d'], // emerald cloud
+        ['#2a1f14', '#8a5b2b', '#ffd089'], // golden storm
+      ];
+      const palette = biomes[(biomeX + 4) % 4];
       const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
-      g.addColorStop(0, `hsl(${230 + pulse * 20} 60% 20%)`);
-      g.addColorStop(0.45, `hsl(${270 + pulse * 40} 55% 42%)`);
-      g.addColorStop(1, `hsl(${310 + pulse * 25} 75% 74%)`);
+      g.addColorStop(0, palette[0]);
+      g.addColorStop(0.45, palette[1]);
+      g.addColorStop(1, palette[2]);
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
@@ -364,11 +376,13 @@
 
       for (const s of state.stars) {
         ctx.fillStyle = `hsla(${s.hue},100%,88%,0.9)`;
-        ctx.fillRect(s.x - cam.x, s.y - cam.y, s.size, s.size);
+        const sx = s.x - cam.x;
+        const sy = s.y - cam.y;
+        ctx.fillRect(Math.floor(sx), Math.floor(sy), 2, 2);
       }
       for (const s of state.stars) {
         ctx.fillStyle = `hsla(${(s.hue + 120) % 360},100%,90%,0.2)`;
-        ctx.fillRect((s.x - cam.x) * 0.6, (s.y - cam.y) * 0.6, s.size * 1.3, s.size * 1.3);
+        ctx.fillRect(Math.floor((s.x - cam.x) * 0.6), Math.floor((s.y - cam.y) * 0.6), 2, 2);
       }
     }
 
@@ -382,35 +396,31 @@
       ctx.strokeStyle = '#ffd56a';
       ctx.lineWidth = 2;
 
-      ctx.beginPath();
-      ctx.moveTo(0, -20);
-      ctx.lineTo(12, -4);
-      ctx.lineTo(18, 12);
-      ctx.lineTo(7, 7);
-      ctx.lineTo(0, 18);
-      ctx.lineTo(-7, 7);
-      ctx.lineTo(-18, 12);
-      ctx.lineTo(-12, -4);
-      ctx.closePath();
-      ctx.fill();
-      ctx.stroke();
-
-      ctx.fillStyle = '#ff9a9a';
-      ctx.beginPath();
-      ctx.moveTo(0, -8);
-      ctx.lineTo(5, 6);
-      ctx.lineTo(0, 2);
-      ctx.lineTo(-5, 6);
-      ctx.closePath();
-      ctx.fill();
+      const sprite = [
+        '....XX....',
+        '...XXXX...',
+        '..XXOOXX..',
+        '.XXXOOXXX.',
+        'XX######XX',
+        '..X####X..',
+        '..X.XX.X..',
+      ];
+      const px = 3;
+      for (let y = 0; y < sprite.length; y++) {
+        for (let x = 0; x < sprite[y].length; x++) {
+          const c = sprite[y][x];
+          if (c === '.') continue;
+          if (c === 'X') ctx.fillStyle = hitBlink ? '#ffd4d4' : '#be1c27';
+          else if (c === 'O') ctx.fillStyle = '#ff9a9a';
+          else ctx.fillStyle = '#ffd56a';
+          ctx.fillRect((x - 5) * px, (y - 4) * px, px, px);
+        }
+      }
       if (state.keys.ArrowDown || state.keys.s) {
         ctx.fillStyle = `hsla(${200 + Math.sin(performance.now() * 0.04) * 30},100%,75%,0.9)`;
-        ctx.beginPath();
-        ctx.moveTo(-5, -18);
-        ctx.lineTo(0, -29 - Math.random() * 4);
-        ctx.lineTo(5, -18);
-        ctx.closePath();
-        ctx.fill();
+        ctx.fillRect(-3, -24 - Math.random() * 3, 3, 8);
+        ctx.fillRect(0, -26 - Math.random() * 5, 3, 10);
+        ctx.fillRect(3, -24 - Math.random() * 3, 3, 8);
       }
 
       ctx.restore();
@@ -428,11 +438,12 @@
       ctx.translate(r.x - cam.x, r.y - cam.y);
       ctx.rotate(r.angle);
 
+      const bob = Math.sin(performance.now() * 0.004 + r.x * 0.01) * 2;
       if (r.type === 'seraph') {
         ctx.strokeStyle = 'hsla(48,100%,80%,0.8)';
         ctx.lineWidth = 1.4;
-        ctx.beginPath(); ctx.ellipse(0, 0, r.r * 0.9, r.r * 0.62, 0, 0, Math.PI * 2); ctx.stroke();
-        ctx.beginPath(); ctx.ellipse(0, 0, r.r * 1.1, r.r * 0.82, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.strokeRect(-r.r * 0.8, -r.r * 0.4 + bob, r.r * 1.6, r.r * 0.8);
+        ctx.strokeRect(-r.r * 0.5, -r.r * 0.7 + bob, r.r, r.r * 1.4);
       } else if (r.type === 'warden') {
         ctx.strokeStyle = 'hsla(195,100%,80%,0.85)';
         ctx.lineWidth = 1.8;
@@ -458,9 +469,9 @@
       }
 
       ctx.fillStyle = 'hsla(42,90%,86%,0.95)';
-      ctx.beginPath(); ctx.arc(0, 0, r.r * 0.24, 0, Math.PI * 2); ctx.fill();
+      ctx.fillRect(-3, -3 + bob, 6, 6);
       ctx.fillStyle = '#2b2442';
-      ctx.beginPath(); ctx.arc(0, 0, r.r * 0.11, 0, Math.PI * 2); ctx.fill();
+      ctx.fillRect(-1, -1 + bob, 2, 2);
       ctx.restore();
     }
 
@@ -496,6 +507,17 @@
       ctx.fillText(`Level: ${state.level}`, 14, 72);
       ctx.fillText(`XP: ${state.xp}/${state.nextLevelXp}`, 14, 96);
       ctx.fillText(`Upgrades S/G/Spd: ${state.shieldLevel}/${state.gunLevel}/${state.speedLevel}`, 14, 120);
+      ctx.fillText(`Biome: ${['Ice Nebula', 'Violet Void', 'Emerald Cloud', 'Golden Storm'][Math.floor((camera().x + canvas.width * 0.5) / 1200) % 4 < 0 ? 0 : Math.floor((camera().x + canvas.width * 0.5) / 1200) % 4]}`, 14, 144);
+
+      const mapW = 140, mapH = 90, mapX = canvas.width - mapW - 14, mapY = 14;
+      ctx.fillStyle = 'rgba(5,8,20,0.55)';
+      ctx.fillRect(mapX, mapY, mapW, mapH);
+      ctx.strokeStyle = '#9de7ff';
+      ctx.strokeRect(mapX, mapY, mapW, mapH);
+      const sx = mapX + ((ship.x + 500000) / 1000000) * mapW;
+      const sy = mapY + ((ship.y + 500000) / 1000000) * mapH;
+      ctx.fillStyle = '#ff6f9f';
+      ctx.fillRect(sx - 2, sy - 2, 4, 4);
 
       if (state.upgradeMenu) {
         ctx.fillStyle = 'rgba(8, 6, 20, 0.72)';
@@ -518,19 +540,24 @@
         ctx.fillText('HEAVENFALL PROTOCOL', canvas.width / 2, 120);
         ctx.fillStyle = '#ffecc2';
         ctx.font = '20px Arial';
-        state.introScroll += 0.35;
+        state.introScroll += 0.25;
+        state.introPhase += 0.035;
         const story = [
-          'In the Neon Throne Sector, angelic wardens fell to corrupted code.',
-          'You are the Infernal Pilot: part demon, part machine, last firewall.',
-          'Harvest soul-XP. Upgrade your shell. Purge the orbit.',
-          'Between halo and horn, only velocity remains.'
+          'YEAR 2144 // THE HALO-NET COLLAPSED',
+          'ARCHANGEL SENTRIES WERE REWRITTEN INTO EXECUTION DAEMONS',
+          'THE CELESTIAL BELT FRACTURED INTO BIOMES OF FROST, GOLD, VOID, AND GLASS',
+          'YOU ARE THE INFERNAL PILOT // A HERETIC ENGINE FUSED TO A WARSHIP',
+          'SALVAGE EXP ORBS // ADAPT THROUGH UPGRADES // END THE ORBITAL SCHISM',
+          'ONLY THE FAST SURVIVE. ONLY THE STRANGE ASCEND.'
         ];
+        ctx.fillStyle = `hsla(${190 + Math.sin(state.introPhase) * 50},100%,75%,0.25)`;
+        for (let i = 0; i < 8; i++) ctx.fillRect(0, 150 + i * 40 + Math.sin(state.introPhase + i) * 6, canvas.width, 2);
         for (let i = 0; i < story.length; i++) {
-          ctx.fillText(story[i], canvas.width / 2, 190 + i * 30 - (state.introScroll % 18));
+          ctx.fillText(story[i], canvas.width / 2, 200 + i * 34 - (state.introScroll % 180));
         }
         ctx.fillStyle = '#ff7ccf';
         ctx.font = '26px Arial';
-        ctx.fillText('Press ENTER to Start Game', canvas.width / 2, 320);
+        ctx.fillText('Press ENTER to Start Game', canvas.width / 2, 430);
         ctx.textAlign = 'left';
       } else if (state.deathOverlay > 0) {
         ctx.fillStyle = 'rgba(0,0,0,0.88)';

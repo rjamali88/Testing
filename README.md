@@ -2,7 +2,7 @@
 
 A tiny browser game inspired by **Asteroids** with a demonic player ship, angelic celestial enemies, rainbow explosions, and a geometric heaven-themed animated background of gold, white, clouds, and color bands.
 
-Now includes an effectively infinite-feeling map with camera follow, timed enemy spawns, XP orb drops, level-ups, upgrades, pulsing synth-style audio, and a scrolling story intro.
+Now includes an effectively infinite-feeling map with camera follow + minimap, timed enemy spawns, XP orb drops, level-ups, upgrades, pulsing synth-style audio, a longer scrolling story intro, and pixel-art-inspired sprites/animations.
 
 ## Run
 
