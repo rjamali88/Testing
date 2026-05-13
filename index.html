@@ -35,11 +35,21 @@
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
 
+    const WORLD = { w: 1800, h: 1400 };
     const state = {
       keys: {},
       score: 0,
       lives: 3,
       wave: 1,
+      xp: 0,
+      level: 1,
+      nextLevelXp: 100,
+      pendingLevelUps: 0,
+      upgradeMenu: false,
+      shieldLevel: 0,
+      gunLevel: 0,
+      speedLevel: 0,
+      spawnTimer: 90,
       gameOver: false,
       won: false,
       flash: 0,
@@ -47,27 +57,35 @@
       particles: [],
       bullets: [],
       rocks: [],
+      xpOrbs: [],
       stars: [],
       clouds: [],
       dt: 1,
     };
 
-    const ship = { x: canvas.width / 2, y: canvas.height / 2, vx: 0, vy: 0, angle: -Math.PI / 2, radius: 16 };
+    const ship = { x: WORLD.w / 2, y: WORLD.h / 2, vx: 0, vy: 0, angle: -Math.PI / 2, radius: 16 };
 
     function rand(min, max) { return Math.random() * (max - min) + min; }
     function wrap(obj) {
-      if (obj.x < -30) obj.x = canvas.width + 30;
-      if (obj.x > canvas.width + 30) obj.x = -30;
-      if (obj.y < -30) obj.y = canvas.height + 30;
-      if (obj.y > canvas.height + 30) obj.y = -30;
+      if (obj.x < -30) obj.x = WORLD.w + 30;
+      if (obj.x > WORLD.w + 30) obj.x = -30;
+      if (obj.y < -30) obj.y = WORLD.h + 30;
+      if (obj.y > WORLD.h + 30) obj.y = -30;
+    }
+
+    function camera() {
+      return {
+        x: Math.max(0, Math.min(WORLD.w - canvas.width, ship.x - canvas.width / 2)),
+        y: Math.max(0, Math.min(WORLD.h - canvas.height, ship.y - canvas.height / 2)),
+      };
     }
 
     function spawnHeavenBackground() {
       state.stars = Array.from({ length: 130 }, () => ({
-        x: rand(0, canvas.width), y: rand(0, canvas.height), size: rand(0.8, 2.3), speed: rand(0.08, 0.45), hue: rand(180, 320),
+        x: rand(0, WORLD.w), y: rand(0, WORLD.h), size: rand(0.8, 2.3), speed: rand(0.08, 0.45), hue: rand(180, 320),
       }));
       state.clouds = Array.from({ length: 14 }, () => ({
-        x: rand(-80, canvas.width + 80), y: rand(20, canvas.height - 20), r: rand(28, 68), vx: rand(0.08, 0.26), hue: rand(30, 60), alpha: rand(0.08, 0.18),
+        x: rand(-80, WORLD.w + 80), y: rand(20, WORLD.h - 20), r: rand(28, 68), vx: rand(0.08, 0.26), hue: rand(30, 60), alpha: rand(0.08, 0.18),
       }));
     }
 
@@ -75,8 +93,8 @@
       for (let i = 0; i < count; i++) {
         const edge = Math.floor(rand(0, 4));
         const rock = {
-          x: edge < 2 ? (edge === 0 ? -18 : canvas.width + 18) : rand(0, canvas.width),
-          y: edge >= 2 ? (edge === 2 ? -18 : canvas.height + 18) : rand(0, canvas.height),
+          x: edge < 2 ? (edge === 0 ? -18 : WORLD.w + 18) : rand(0, WORLD.w),
+          y: edge >= 2 ? (edge === 2 ? -18 : WORLD.h + 18) : rand(0, WORLD.h),
           vx: rand(-1.8, 1.8),
           vy: rand(-1.8, 1.8),
           angle: rand(0, Math.PI * 2),
@@ -92,6 +110,15 @@
       state.score = 0;
       state.lives = 3;
       state.wave = 1;
+      state.xp = 0;
+      state.level = 1;
+      state.nextLevelXp = 100;
+      state.pendingLevelUps = 0;
+      state.upgradeMenu = false;
+      state.shieldLevel = 0;
+      state.gunLevel = 0;
+      state.speedLevel = 0;
+      state.spawnTimer = 90;
       state.gameOver = false;
       state.won = false;
       state.flash = 0;
@@ -99,13 +126,14 @@
       state.bullets = [];
       state.particles = [];
       state.rocks = [];
-      ship.x = canvas.width / 2;
-      ship.y = canvas.height / 2;
+      state.xpOrbs = [];
+      ship.x = WORLD.w / 2;
+      ship.y = WORLD.h / 2;
       ship.vx = 0;
       ship.vy = 0;
       ship.angle = -Math.PI / 2;
       spawnHeavenBackground();
-      spawnRocks(6);
+      spawnRocks(4);
     }
 
     function explode(x, y, count = 24) {
@@ -119,14 +147,19 @@
     function shoot() {
       if (state.cooldown > 0 || state.gameOver) return;
       const speed = 8.5;
-      state.bullets.push({
-        x: ship.x + Math.cos(ship.angle) * 20,
-        y: ship.y + Math.sin(ship.angle) * 20,
-        vx: ship.vx + Math.cos(ship.angle) * speed,
-        vy: ship.vy + Math.sin(ship.angle) * speed,
-        life: 70,
-      });
-      state.cooldown = 10;
+      const spread = state.gunLevel >= 2 ? 0.18 : state.gunLevel >= 1 ? 0.08 : 0;
+      const shots = state.gunLevel >= 2 ? [-spread, 0, spread] : [0];
+      for (const s of shots) {
+        const a = ship.angle + s;
+        state.bullets.push({
+          x: ship.x + Math.cos(a) * 20,
+          y: ship.y + Math.sin(a) * 20,
+          vx: ship.vx + Math.cos(a) * speed,
+          vy: ship.vy + Math.sin(a) * speed,
+          life: 70 + state.gunLevel * 12,
+        });
+      }
+      state.cooldown = Math.max(5, 10 - state.gunLevel * 2);
     }
 
     function hit(a, b, r) { return Math.hypot(a.x - b.x, a.y - b.y) < r; }
@@ -145,11 +178,17 @@
 
     function update() {
       if (state.gameOver) return;
+      if (state.upgradeMenu) return;
       if (state.cooldown > 0) state.cooldown--;
       if (state.flash > 0) state.flash--;
+      state.spawnTimer -= state.dt;
+      if (state.spawnTimer <= 0) {
+        spawnRocks(1 + Math.floor(state.level / 2));
+        state.spawnTimer = Math.max(30, 90 - state.level * 3 + rand(-12, 12));
+      }
 
       const rotSpeed = 0.075;
-      const thrust = 0.2;
+      const thrust = 0.2 + state.speedLevel * 0.055;
       if (state.keys.ArrowLeft || state.keys.a) ship.angle -= rotSpeed * state.dt;
       if (state.keys.ArrowRight || state.keys.d) ship.angle += rotSpeed * state.dt;
       if (state.keys.ArrowUp || state.keys.w) {
@@ -166,14 +205,14 @@
         }
       }
 
-      ship.vx *= 0.992;
-      ship.vy *= 0.992;
+      ship.vx *= 0.9935;
+      ship.vy *= 0.9935;
       ship.x += ship.vx * state.dt;
       ship.y += ship.vy * state.dt;
       wrap(ship);
 
-      for (const s of state.stars) { s.y += s.speed * state.dt; if (s.y > canvas.height + 2) { s.y = -2; s.x = rand(0, canvas.width); } }
-      for (const c of state.clouds) { c.x += c.vx * state.dt; if (c.x > canvas.width + 90) c.x = -90; }
+      for (const s of state.stars) { s.y += s.speed * state.dt; if (s.y > WORLD.h + 2) { s.y = -2; s.x = rand(0, WORLD.w); } }
+      for (const c of state.clouds) { c.x += c.vx * state.dt; if (c.x > WORLD.w + 90) c.x = -90; }
 
       for (const b of state.bullets) {
         b.x += b.vx * state.dt;
@@ -206,6 +245,7 @@
             r.dead = true;
             state.score += r.level * 20;
             explode(r.x, r.y, 28);
+            state.xpOrbs.push({ x: r.x, y: r.y, value: 12 * r.level, r: 6 + r.level, hue: rand(170, 320) });
             splitRock(r);
             break;
           }
@@ -215,11 +255,18 @@
 
       for (const r of state.rocks) {
         if (hit(ship, r, ship.radius + r.r * 0.75) && state.flash === 0) {
+          if (state.shieldLevel > 0) {
+            state.shieldLevel--;
+            state.flash = 20;
+            r.dead = true;
+            explode(r.x, r.y, 18);
+            continue;
+          }
           state.lives--;
           state.flash = 60;
           explode(ship.x, ship.y, 40);
-          ship.x = canvas.width / 2;
-          ship.y = canvas.height / 2;
+          ship.x = WORLD.w / 2;
+          ship.y = WORLD.h / 2;
           ship.vx = 0;
           ship.vy = 0;
           if (state.lives <= 0) {
@@ -229,19 +276,32 @@
           break;
         }
       }
+      state.rocks = state.rocks.filter(r => !r.dead);
 
-      if (!state.gameOver && state.rocks.length === 0) {
-        state.wave++;
-        if (state.wave > 5) {
-          state.gameOver = true;
-          state.won = true;
-        } else {
-          spawnRocks(4 + state.wave * 2);
+      for (const orb of state.xpOrbs) {
+        const dx = ship.x - orb.x;
+        const dy = ship.y - orb.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < 140) {
+          orb.x += (dx / (dist || 1)) * 2.2 * state.dt;
+          orb.y += (dy / (dist || 1)) * 2.2 * state.dt;
+        }
+        if (dist < ship.radius + orb.r + 6) {
+          orb.dead = true;
+          state.xp += orb.value;
+          while (state.xp >= state.nextLevelXp) {
+            state.xp -= state.nextLevelXp;
+            state.level++;
+            state.nextLevelXp = Math.floor(state.nextLevelXp * 1.25);
+            state.pendingLevelUps++;
+          }
         }
       }
+      state.xpOrbs = state.xpOrbs.filter(o => !o.dead);
+      if (state.pendingLevelUps > 0) state.upgradeMenu = true;
     }
 
-    function drawBackground() {
+    function drawBackground(cam) {
       const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
       g.addColorStop(0, '#1e2664');
       g.addColorStop(0.45, '#5f3bb3');
@@ -253,30 +313,32 @@
         ctx.strokeStyle = `hsla(${(i * 45 + performance.now() * 0.02) % 360},100%,80%,0.18)`;
         ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.moveTo(0, i * 70 + (performance.now() * 0.03 % 70));
-        ctx.lineTo(canvas.width, i * 70 + 45 + (performance.now() * 0.03 % 70));
+        ctx.moveTo(0, i * 70 + ((performance.now() * 0.03 + cam.y * 0.25) % 70));
+        ctx.lineTo(canvas.width, i * 70 + 45 + ((performance.now() * 0.03 + cam.y * 0.25) % 70));
         ctx.stroke();
       }
 
       for (const c of state.clouds) {
-        const cg = ctx.createRadialGradient(c.x, c.y, c.r * 0.2, c.x, c.y, c.r);
+        const x = c.x - cam.x;
+        const y = c.y - cam.y;
+        const cg = ctx.createRadialGradient(x, y, c.r * 0.2, x, y, c.r);
         cg.addColorStop(0, `hsla(${c.hue},100%,95%,${c.alpha + 0.08})`);
         cg.addColorStop(1, `hsla(${c.hue},100%,90%,0)`);
         ctx.fillStyle = cg;
         ctx.beginPath();
-        ctx.arc(c.x, c.y, c.r, 0, Math.PI * 2);
+        ctx.arc(x, y, c.r, 0, Math.PI * 2);
         ctx.fill();
       }
 
       for (const s of state.stars) {
         ctx.fillStyle = `hsla(${s.hue},100%,88%,0.9)`;
-        ctx.fillRect(s.x, s.y, s.size, s.size);
+        ctx.fillRect(s.x - cam.x, s.y - cam.y, s.size, s.size);
       }
     }
 
-    function drawShip() {
+    function drawShip(cam) {
       ctx.save();
-      ctx.translate(ship.x, ship.y);
+      ctx.translate(ship.x - cam.x, ship.y - cam.y);
       ctx.rotate(ship.angle + Math.PI / 2);
 
       const hitBlink = state.flash > 0 && Math.floor(state.flash / 4) % 2 === 0;
@@ -307,11 +369,18 @@
       ctx.fill();
 
       ctx.restore();
+      if (state.shieldLevel > 0) {
+        ctx.strokeStyle = `hsla(${190 + performance.now() * 0.05},100%,80%,0.8)`;
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(ship.x - cam.x, ship.y - cam.y, ship.radius + 8 + state.shieldLevel * 2, 0, Math.PI * 2);
+        ctx.stroke();
+      }
     }
 
-    function drawAngelRock(r) {
+    function drawAngelRock(r, cam) {
       ctx.save();
-      ctx.translate(r.x, r.y);
+      ctx.translate(r.x - cam.x, r.y - cam.y);
       ctx.rotate(r.angle);
 
       ctx.strokeStyle = 'hsla(48,100%,80%,0.8)';
@@ -344,19 +413,27 @@
       ctx.restore();
     }
 
-    function drawBullets() {
+    function drawBullets(cam) {
       for (const b of state.bullets) {
         ctx.fillStyle = '#fff6c8';
         ctx.beginPath();
-        ctx.arc(b.x, b.y, 2.2, 0, Math.PI * 2);
+        ctx.arc(b.x - cam.x, b.y - cam.y, 2.2, 0, Math.PI * 2);
+        ctx.fill();
+      }
+    }
+    function drawOrbs(cam) {
+      for (const o of state.xpOrbs) {
+        ctx.fillStyle = `hsla(${o.hue},100%,70%,0.95)`;
+        ctx.beginPath();
+        ctx.arc(o.x - cam.x, o.y - cam.y, o.r, 0, Math.PI * 2);
         ctx.fill();
       }
     }
 
-    function drawParticles() {
+    function drawParticles(cam) {
       for (const p of state.particles) {
         ctx.fillStyle = `hsla(${p.hue},100%,65%,${Math.max(0, p.life / p.max)})`;
-        ctx.fillRect(p.x, p.y, p.size, p.size);
+        ctx.fillRect(p.x - cam.x, p.y - cam.y, p.size, p.size);
       }
     }
 
@@ -365,9 +442,23 @@
       ctx.font = '18px Arial';
       ctx.fillText(`Score: ${state.score}`, 14, 24);
       ctx.fillText(`Lives: ${state.lives}`, 14, 48);
-      ctx.fillText(`Wave: ${state.wave}/5`, 14, 72);
+      ctx.fillText(`Level: ${state.level}`, 14, 72);
+      ctx.fillText(`XP: ${state.xp}/${state.nextLevelXp}`, 14, 96);
+      ctx.fillText(`Upgrades S/G/Spd: ${state.shieldLevel}/${state.gunLevel}/${state.speedLevel}`, 14, 120);
 
-      if (state.gameOver) {
+      if (state.upgradeMenu) {
+        ctx.fillStyle = 'rgba(8, 6, 20, 0.72)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#fff7de';
+        ctx.font = '30px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Level Up! Choose Upgrade', canvas.width / 2, canvas.height / 2 - 70);
+        ctx.font = '22px Arial';
+        ctx.fillText('1) Shield (+1 charge)', canvas.width / 2, canvas.height / 2 - 20);
+        ctx.fillText('2) Better Guns (+fire rate/spread)', canvas.width / 2, canvas.height / 2 + 20);
+        ctx.fillText('3) More Speed (+thrust)', canvas.width / 2, canvas.height / 2 + 60);
+        ctx.textAlign = 'left';
+      } else if (state.gameOver) {
         ctx.fillStyle = 'rgba(16, 8, 28, 0.55)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
         ctx.fillStyle = state.won ? '#d8ffea' : '#ffd4d4';
@@ -387,11 +478,13 @@
       last = now;
       state.dt = delta;
       update();
-      drawBackground();
-      for (const r of state.rocks) drawAngelRock(r);
-      drawParticles();
-      drawBullets();
-      drawShip();
+      const cam = camera();
+      drawBackground(cam);
+      for (const r of state.rocks) drawAngelRock(r, cam);
+      drawParticles(cam);
+      drawBullets(cam);
+      drawOrbs(cam);
+      drawShip(cam);
       drawHud();
       requestAnimationFrame(loop);
     }
@@ -401,6 +494,13 @@
       state.keys[key] = true;
       if (e.key === ' ') { e.preventDefault(); shoot(); }
       if ((e.key === 'r' || e.key === 'R') && state.gameOver) resetGame();
+      if (state.upgradeMenu && (key === '1' || key === '2' || key === '3')) {
+        if (key === '1') state.shieldLevel++;
+        if (key === '2') state.gunLevel = Math.min(3, state.gunLevel + 1);
+        if (key === '3') state.speedLevel = Math.min(5, state.speedLevel + 1);
+        state.pendingLevelUps--;
+        if (state.pendingLevelUps <= 0) state.upgradeMenu = false;
+      }
     });
     addEventListener('keyup', (e) => {
       const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
