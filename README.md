@@ -18,6 +18,8 @@ Then visit <http://localhost:8000>.
 
 - Rotate: Left/Right arrows or `A` / `D`
 - Thrust: Up arrow or `W`
+- Reverse thrust / brake: Down arrow or `S`
 - Shoot: Space
+- Start game from intro screen: `Enter`
 - Restart after game over: `R`
 - Choose level-up upgrades: `1` Shield, `2` Better Guns, `3` More Speed

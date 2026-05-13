@@ -28,7 +28,7 @@
   <div class="wrap">
     <h1>Heavenfall Asteroids</h1>
     <canvas id="game" width="760" height="520"></canvas>
-    <div class="help">Rotate: ← → / A D &nbsp;|&nbsp; Thrust: ↑ / W &nbsp;|&nbsp; Fire: Space &nbsp;|&nbsp; Restart: R</div>
+    <div class="help">Rotate: ← → / A D &nbsp;|&nbsp; Thrust: ↑ / W &nbsp;|&nbsp; Reverse: ↓ / S &nbsp;|&nbsp; Fire: Space</div>
   </div>
 
   <script>
@@ -43,9 +43,10 @@
       wave: 1,
       xp: 0,
       level: 1,
-      nextLevelXp: 100,
+      nextLevelXp: 60,
       pendingLevelUps: 0,
       upgradeMenu: false,
+      started: false,
       shieldLevel: 0,
       gunLevel: 0,
       speedLevel: 0,
@@ -66,13 +67,6 @@
     const ship = { x: WORLD.w / 2, y: WORLD.h / 2, vx: 0, vy: 0, angle: -Math.PI / 2, radius: 16 };
 
     function rand(min, max) { return Math.random() * (max - min) + min; }
-    function wrap(obj) {
-      if (obj.x < -30) obj.x = WORLD.w + 30;
-      if (obj.x > WORLD.w + 30) obj.x = -30;
-      if (obj.y < -30) obj.y = WORLD.h + 30;
-      if (obj.y > WORLD.h + 30) obj.y = -30;
-    }
-
     function camera() {
       return {
         x: Math.max(0, Math.min(WORLD.w - canvas.width, ship.x - canvas.width / 2)),
@@ -99,8 +93,8 @@
           vy: rand(-1.8, 1.8),
           angle: rand(0, Math.PI * 2),
           spin: rand(-0.02, 0.02),
-          r: rand(22, 46),
-          level: 3,
+          r: rand(18, 44),
+          type: ['seraph', 'warden', 'archon'][Math.floor(rand(0, 3))],
         };
         if (Math.hypot(rock.x - ship.x, rock.y - ship.y) < 120) i--; else state.rocks.push(rock);
       }
@@ -112,9 +106,10 @@
       state.wave = 1;
       state.xp = 0;
       state.level = 1;
-      state.nextLevelXp = 100;
+      state.nextLevelXp = 60;
       state.pendingLevelUps = 0;
       state.upgradeMenu = false;
+      state.started = false;
       state.shieldLevel = 0;
       state.gunLevel = 0;
       state.speedLevel = 0;
@@ -133,7 +128,7 @@
       ship.vy = 0;
       ship.angle = -Math.PI / 2;
       spawnHeavenBackground();
-      spawnRocks(4);
+      spawnRocks(6);
     }
 
     function explode(x, y, count = 24) {
@@ -164,26 +159,14 @@
 
     function hit(a, b, r) { return Math.hypot(a.x - b.x, a.y - b.y) < r; }
 
-    function splitRock(rock) {
-      if (rock.level <= 1) return;
-      for (let i = 0; i < 2; i++) {
-        state.rocks.push({
-          x: rock.x, y: rock.y,
-          vx: rock.vx + rand(-1.4, 1.4), vy: rock.vy + rand(-1.4, 1.4),
-          angle: rand(0, Math.PI * 2), spin: rand(-0.04, 0.04),
-          r: rock.r * 0.58, level: rock.level - 1,
-        });
-      }
-    }
-
     function update() {
-      if (state.gameOver) return;
+      if (state.gameOver || !state.started) return;
       if (state.upgradeMenu) return;
       if (state.cooldown > 0) state.cooldown--;
       if (state.flash > 0) state.flash--;
       state.spawnTimer -= state.dt;
       if (state.spawnTimer <= 0) {
-        spawnRocks(1 + Math.floor(state.level / 2));
+        spawnRocks(1 + Math.floor(state.level / 3));
         state.spawnTimer = Math.max(30, 90 - state.level * 3 + rand(-12, 12));
       }
 
@@ -204,12 +187,17 @@
           });
         }
       }
+      if (state.keys.ArrowDown || state.keys.s) {
+        ship.vx -= Math.cos(ship.angle) * thrust * 0.66 * state.dt;
+        ship.vy -= Math.sin(ship.angle) * thrust * 0.66 * state.dt;
+      }
 
       ship.vx *= 0.9935;
       ship.vy *= 0.9935;
       ship.x += ship.vx * state.dt;
       ship.y += ship.vy * state.dt;
-      wrap(ship);
+      ship.x = Math.max(ship.radius, Math.min(WORLD.w - ship.radius, ship.x));
+      ship.y = Math.max(ship.radius, Math.min(WORLD.h - ship.radius, ship.y));
 
       for (const s of state.stars) { s.y += s.speed * state.dt; if (s.y > WORLD.h + 2) { s.y = -2; s.x = rand(0, WORLD.w); } }
       for (const c of state.clouds) { c.x += c.vx * state.dt; if (c.x > WORLD.w + 90) c.x = -90; }
@@ -218,7 +206,7 @@
         b.x += b.vx * state.dt;
         b.y += b.vy * state.dt;
         b.life -= state.dt;
-        wrap(b);
+        if (b.x < 0 || b.x > WORLD.w || b.y < 0 || b.y > WORLD.h) b.life = -1;
       }
       state.bullets = state.bullets.filter(b => b.life > 0);
 
@@ -226,7 +214,10 @@
         r.x += r.vx * state.dt;
         r.y += r.vy * state.dt;
         r.angle += r.spin * state.dt;
-        wrap(r);
+        if (r.x < r.r || r.x > WORLD.w - r.r) r.vx *= -1;
+        if (r.y < r.r || r.y > WORLD.h - r.r) r.vy *= -1;
+        r.x = Math.max(r.r, Math.min(WORLD.w - r.r, r.x));
+        r.y = Math.max(r.r, Math.min(WORLD.h - r.r, r.y));
       }
 
       for (const p of state.particles) {
@@ -243,10 +234,9 @@
           if (hit(b, r, r.r)) {
             b.life = -1;
             r.dead = true;
-            state.score += r.level * 20;
+            state.score += 20;
             explode(r.x, r.y, 28);
-            state.xpOrbs.push({ x: r.x, y: r.y, value: 12 * r.level, r: 6 + r.level, hue: rand(170, 320) });
-            splitRock(r);
+            state.xpOrbs.push({ x: r.x, y: r.y, value: rand(20, 36), r: 7, hue: rand(170, 320) });
             break;
           }
         }
@@ -292,7 +282,7 @@
           while (state.xp >= state.nextLevelXp) {
             state.xp -= state.nextLevelXp;
             state.level++;
-            state.nextLevelXp = Math.floor(state.nextLevelXp * 1.25);
+            state.nextLevelXp = Math.floor(state.nextLevelXp * 1.2);
             state.pendingLevelUps++;
           }
         }
@@ -383,33 +373,39 @@
       ctx.translate(r.x - cam.x, r.y - cam.y);
       ctx.rotate(r.angle);
 
-      ctx.strokeStyle = 'hsla(48,100%,80%,0.8)';
-      ctx.lineWidth = 1.4;
-      ctx.beginPath();
-      ctx.ellipse(0, 0, r.r * 0.85, r.r * 0.62, 0, 0, Math.PI * 2);
-      ctx.stroke();
-      ctx.beginPath();
-      ctx.ellipse(0, 0, r.r * 1.05, r.r * 0.82, 0, 0, Math.PI * 2);
-      ctx.stroke();
+      if (r.type === 'seraph') {
+        ctx.strokeStyle = 'hsla(48,100%,80%,0.8)';
+        ctx.lineWidth = 1.4;
+        ctx.beginPath(); ctx.ellipse(0, 0, r.r * 0.9, r.r * 0.62, 0, 0, Math.PI * 2); ctx.stroke();
+        ctx.beginPath(); ctx.ellipse(0, 0, r.r * 1.1, r.r * 0.82, 0, 0, Math.PI * 2); ctx.stroke();
+      } else if (r.type === 'warden') {
+        ctx.strokeStyle = 'hsla(195,100%,80%,0.85)';
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const a = (Math.PI * 2 * i) / 6;
+          const px = Math.cos(a) * r.r * 0.9;
+          const py = Math.sin(a) * r.r * 0.9;
+          i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.stroke();
+      } else {
+        ctx.strokeStyle = 'hsla(300,100%,80%,0.75)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(0, -r.r);
+        ctx.lineTo(r.r * 0.5, 0);
+        ctx.lineTo(0, r.r);
+        ctx.lineTo(-r.r * 0.5, 0);
+        ctx.closePath();
+        ctx.stroke();
+      }
 
       ctx.fillStyle = 'hsla(42,90%,86%,0.95)';
-      ctx.beginPath();
-      ctx.arc(0, 0, r.r * 0.25, 0, Math.PI * 2);
-      ctx.fill();
+      ctx.beginPath(); ctx.arc(0, 0, r.r * 0.24, 0, Math.PI * 2); ctx.fill();
       ctx.fillStyle = '#2b2442';
-      ctx.beginPath();
-      ctx.arc(0, 0, r.r * 0.12, 0, Math.PI * 2);
-      ctx.fill();
-
-      ctx.strokeStyle = 'hsla(200,100%,85%,0.65)';
-      ctx.beginPath();
-      ctx.moveTo(0, -r.r * 0.7);
-      ctx.quadraticCurveTo(-r.r * 0.95, -r.r * 0.15, -r.r * 0.75, r.r * 0.45);
-      ctx.quadraticCurveTo(-r.r * 0.4, r.r * 0.35, 0, r.r * 0.7);
-      ctx.moveTo(0, -r.r * 0.7);
-      ctx.quadraticCurveTo(r.r * 0.95, -r.r * 0.15, r.r * 0.75, r.r * 0.45);
-      ctx.quadraticCurveTo(r.r * 0.4, r.r * 0.35, 0, r.r * 0.7);
-      ctx.stroke();
+      ctx.beginPath(); ctx.arc(0, 0, r.r * 0.11, 0, Math.PI * 2); ctx.fill();
       ctx.restore();
     }
 
@@ -458,6 +454,22 @@
         ctx.fillText('2) Better Guns (+fire rate/spread)', canvas.width / 2, canvas.height / 2 + 20);
         ctx.fillText('3) More Speed (+thrust)', canvas.width / 2, canvas.height / 2 + 60);
         ctx.textAlign = 'left';
+      } else if (!state.started) {
+        ctx.fillStyle = 'rgba(5, 5, 18, 0.8)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#8ef3ff';
+        ctx.textAlign = 'center';
+        ctx.font = '38px Arial';
+        ctx.fillText('HEAVENFALL PROTOCOL', canvas.width / 2, 120);
+        ctx.fillStyle = '#ffecc2';
+        ctx.font = '20px Arial';
+        ctx.fillText('In the Neon Throne Sector, angelic wardens fell to corrupted code.', canvas.width / 2, 190);
+        ctx.fillText('You are the Infernal Pilot: part demon, part machine, last firewall.', canvas.width / 2, 220);
+        ctx.fillText('Harvest soul-XP. Upgrade. Purge the orbit.', canvas.width / 2, 250);
+        ctx.fillStyle = '#ff7ccf';
+        ctx.font = '26px Arial';
+        ctx.fillText('Press ENTER to Start Game', canvas.width / 2, 320);
+        ctx.textAlign = 'left';
       } else if (state.gameOver) {
         ctx.fillStyle = 'rgba(16, 8, 28, 0.55)';
         ctx.fillRect(0, 0, canvas.width, canvas.height);
@@ -494,6 +506,7 @@
       state.keys[key] = true;
       if (e.key === ' ') { e.preventDefault(); shoot(); }
       if ((e.key === 'r' || e.key === 'R') && state.gameOver) resetGame();
+      if (e.key === 'Enter' && !state.started) state.started = true;
       if (state.upgradeMenu && (key === '1' || key === '2' || key === '3')) {
         if (key === '1') state.shieldLevel++;
         if (key === '2') state.gunLevel = Math.min(3, state.gunLevel + 1);
