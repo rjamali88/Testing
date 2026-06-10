@@ -77,6 +77,9 @@
       gunLevel: 0,
       speedLevel: 0,
       spawnTimer: 90,
+      eliteTimer: 900,
+      runTime: 0,
+      autoFire: true,
       deathOverlay: 0,
       deathQuote: '',
       introScroll: 0,
@@ -95,6 +98,7 @@
       spawnWarnings: [],
       floatingTexts: [],
       xpOrbs: [],
+      relics: [],
       stars: [],
       clouds: [],
       dt: 1,
@@ -164,6 +168,8 @@
           spin: rand(-0.02, 0.02),
           r: rand(18, 44),
           type: ['seraph', 'warden', 'archon'][Math.floor(rand(0, 3))],
+          hp: 1,
+          elite: false,
         };
         if (Math.hypot(rock.x - ship.x, rock.y - ship.y) < 120) i--; else state.rocks.push(rock);
       }
@@ -179,6 +185,8 @@
           timer: 70 + rand(0, 30),
           r: rand(18, 44),
           type: ['seraph', 'warden', 'archon'][Math.floor(rand(0, 3))],
+          elite: false,
+          hp: 1,
         });
       }
     }
@@ -199,6 +207,9 @@
       state.gunLevel = 0;
       state.speedLevel = 0;
       state.spawnTimer = 90;
+      state.eliteTimer = 900;
+      state.runTime = 0;
+      state.autoFire = true;
       state.gameOver = false;
       state.won = false;
       state.flash = 0;
@@ -214,6 +225,7 @@
       state.spawnWarnings = [];
       state.floatingTexts = [];
       state.xpOrbs = [];
+      state.relics = [];
       ship.x = 0;
       ship.y = 0;
       ship.vx = 0;
@@ -260,13 +272,13 @@
       }
     }
 
-    function shoot() {
-      if (state.cooldown > 0 || state.gameOver) return;
+    function shoot(targetAngle = ship.angle) {
+      if (state.cooldown > 0 || state.gameOver || state.upgradeMenu || !state.started) return;
       const speed = 8.5;
       const spread = state.gunLevel >= 2 ? 0.18 : state.gunLevel >= 1 ? 0.08 : 0;
       const shots = state.gunLevel >= 2 ? [-spread, 0, spread] : [0];
       for (const s of shots) {
-        const a = ship.angle + s;
+        const a = targetAngle + s;
         state.bullets.push({
           x: ship.x + Math.cos(a) * 20,
           y: ship.y + Math.sin(a) * 20,
@@ -280,6 +292,31 @@
 
     function hit(a, b, r) { return Math.hypot(a.x - b.x, a.y - b.y) < r; }
 
+    function nearestEnemy(maxDistance = 900) {
+      let best = null;
+      let bestDist = maxDistance;
+      for (const r of state.rocks) {
+        const dist = Math.hypot(r.x - ship.x, r.y - ship.y);
+        if (dist < bestDist) { best = r; bestDist = dist; }
+      }
+      return best;
+    }
+
+    function queueEliteSpawn() {
+      const angle = rand(0, Math.PI * 2);
+      const distance = rand(860, 1250);
+      state.spawnWarnings.push({
+        x: ship.x + Math.cos(angle) * distance,
+        y: ship.y + Math.sin(angle) * distance,
+        timer: 125,
+        r: 64,
+        type: 'dread',
+        elite: true,
+        hp: 9 + Math.floor(state.level / 2),
+      });
+      addFloatingText('DREAD SERAPH INBOUND', ship.x, ship.y - 90, ART.magenta);
+    }
+
     function update() {
       if (state.gameOver || !state.started) return;
       if (state.deathOverlay > 0) { state.deathOverlay -= state.dt; return; }
@@ -289,6 +326,16 @@
       if (state.shake > 0) state.shake *= 0.88;
       if (state.shake < 0.1) state.shake = 0;
       if (state.comboTimer > 0) state.comboTimer -= state.dt; else state.combo = 0;
+      state.runTime += state.dt / 60;
+      state.eliteTimer -= state.dt;
+      if (state.eliteTimer <= 0) {
+        queueEliteSpawn();
+        state.eliteTimer = Math.max(720, 1050 - state.level * 20);
+      }
+      if (state.autoFire && state.cooldown <= 0) {
+        const target = nearestEnemy(950);
+        if (target) shoot(Math.atan2(target.y - ship.y, target.x - ship.x));
+      }
       state.spawnTimer -= state.dt;
       state.beat += 0.03 * state.dt;
       if (state.spawnTimer <= 0) {
@@ -302,6 +349,7 @@
           state.rocks.push({
             x: warning.x, y: warning.y, vx: rand(-1.9, 1.9), vy: rand(-1.9, 1.9),
             angle: rand(0, Math.PI * 2), spin: rand(-0.025, 0.025), r: warning.r, type: warning.type,
+            elite: !!warning.elite, hp: warning.hp || 1, maxHp: warning.hp || 1,
           });
           warning.dead = true;
         }
@@ -352,7 +400,10 @@
         const dx = ship.x - r.x;
         const dy = ship.y - r.y;
         const dist = Math.hypot(dx, dy) || 1;
-        if (r.type === 'warden') {
+        if (r.type === 'dread') {
+          r.vx += (dx / dist) * 0.012 * state.dt;
+          r.vy += (dy / dist) * 0.012 * state.dt;
+        } else if (r.type === 'warden') {
           r.vx += (dx / dist) * 0.018 * state.dt;
           r.vy += (dy / dist) * 0.018 * state.dt;
         } else if (r.type === 'archon') {
@@ -380,15 +431,21 @@
         for (const r of state.rocks) {
           if (hit(b, r, r.r)) {
             b.life = -1;
+            r.hp = (r.hp || 1) - 1;
+            state.shake = Math.max(state.shake, r.elite ? 7 : 4);
+            if (r.hp > 0) {
+              addFloatingText(`${r.hp}`, r.x, r.y - r.r, ART.cyan);
+              break;
+            }
             r.dead = true;
             state.combo++;
             state.comboTimer = 180;
-            const points = 20 * Math.max(1, state.combo);
+            const points = (r.elite ? 180 : 20) * Math.max(1, state.combo);
             state.score += points;
-            state.shake = Math.max(state.shake, 4);
             addFloatingText(`+${points} x${state.combo}`, r.x, r.y, '#fff5cf');
-            explode(r.x, r.y, 28);
-            state.xpOrbs.push({ x: r.x, y: r.y, value: rand(20, 36), r: 7, hue: rand(170, 320) });
+            explode(r.x, r.y, r.elite ? 70 : 28);
+            if (r.elite) state.relics.push({ x: r.x, y: r.y, r: 14, value: 160, hue: 48 });
+            else state.xpOrbs.push({ x: r.x, y: r.y, value: rand(20, 36), r: 7, hue: rand(170, 320) });
             break;
           }
         }
@@ -446,6 +503,29 @@
         }
       }
       state.xpOrbs = state.xpOrbs.filter(o => !o.dead);
+      for (const relic of state.relics) {
+        const dx = ship.x - relic.x;
+        const dy = ship.y - relic.y;
+        const dist = Math.hypot(dx, dy);
+        if (dist < 320) {
+          const pull = 1.5 + (320 - dist) * 0.018;
+          relic.x += (dx / (dist || 1)) * pull * state.dt;
+          relic.y += (dy / (dist || 1)) * pull * state.dt;
+        }
+        if (dist < ship.radius + relic.r + 8) {
+          relic.dead = true;
+          state.xp += relic.value;
+          while (state.xp >= state.nextLevelXp) {
+            state.xp -= state.nextLevelXp;
+            state.level++;
+            state.nextLevelXp = Math.floor(state.nextLevelXp * 1.2);
+            state.pendingLevelUps++;
+          }
+          state.shieldLevel++;
+          addFloatingText('RELIC: SHIELD + XP', ship.x, ship.y - 70, ART.gold);
+        }
+      }
+      state.relics = state.relics.filter(relic => !relic.dead);
       for (const text of state.floatingTexts) {
         text.y += text.vy * state.dt;
         text.life -= state.dt;
@@ -604,7 +684,15 @@
       const bob = Math.sin(performance.now() * 0.004 + r.x * 0.01) * 2;
       ctx.shadowColor = r.type === 'archon' ? ART.violet : r.type === 'warden' ? ART.cyan : ART.gold;
       ctx.shadowBlur = 12;
-      if (r.type === 'seraph') {
+      if (r.type === 'dread') {
+        ctx.strokeStyle = ART.magenta;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(-r.r * 0.72, -r.r * 0.72 + bob, r.r * 1.44, r.r * 1.44);
+        ctx.strokeStyle = ART.gold;
+        ctx.strokeRect(-r.r * 0.48, -r.r * 0.48 - bob, r.r * 0.96, r.r * 0.96);
+        ctx.fillStyle = 'rgba(255, 92, 134, 0.18)';
+        ctx.fillRect(-r.r * 0.55, -r.r * 0.55, r.r * 1.1, r.r * 1.1);
+      } else if (r.type === 'seraph') {
         ctx.strokeStyle = 'hsla(48,100%,80%,0.8)';
         ctx.lineWidth = 1.4;
         ctx.strokeRect(-r.r * 0.8, -r.r * 0.4 + bob, r.r * 1.6, r.r * 0.8);
@@ -637,6 +725,12 @@
       ctx.fillRect(-3, -3 + bob, 6, 6);
       ctx.fillStyle = '#2b2442';
       ctx.fillRect(-1, -1 + bob, 2, 2);
+      if (r.elite && r.maxHp > 1) {
+        ctx.fillStyle = 'rgba(5, 6, 18, 0.82)';
+        ctx.fillRect(-r.r * 0.7, r.r + 8, r.r * 1.4, 5);
+        ctx.fillStyle = ART.magenta;
+        ctx.fillRect(-r.r * 0.7, r.r + 8, r.r * 1.4 * (r.hp / r.maxHp), 5);
+      }
       ctx.shadowBlur = 0;
       ctx.restore();
     }
@@ -659,6 +753,21 @@
         ctx.shadowColor = `hsl(${o.hue},100%,70%)`;
         ctx.shadowBlur = 10;
         drawPixelDiamond(x, y, Math.max(2, o.r * 0.45 * pulse), `hsla(${o.hue},100%,70%,0.95)`);
+        ctx.shadowBlur = 0;
+      }
+    }
+
+
+    function drawRelics(cam) {
+      for (const relic of state.relics) {
+        const pulse = 1 + Math.sin(performance.now() * 0.012 + relic.x) * 0.22;
+        const x = relic.x - cam.x;
+        const y = relic.y - cam.y;
+        ctx.shadowColor = ART.gold;
+        ctx.shadowBlur = 18;
+        drawPixelDiamond(x, y, relic.r * 0.7 * pulse, ART.gold);
+        ctx.fillStyle = ART.bone;
+        ctx.fillRect(x - 2, y - 2, 4, 4);
         ctx.shadowBlur = 0;
       }
     }
@@ -742,6 +851,7 @@
       }
 
       for (const orb of state.xpOrbs) plot(orb, '#7cffd9', 3);
+      for (const relic of state.relics) plot(relic, '#ffd86b', 5);
       for (const warning of state.spawnWarnings) plot(warning, '#ffd86b', 4);
       for (const r of state.rocks) plot(r, '#ff5c86', 4);
       ctx.fillStyle = '#ffffff';
@@ -751,7 +861,7 @@
     }
 
     function drawHud() {
-      drawGothicPanel(10, 10, 280, state.combo > 1 ? 176 : 152, 'NEO-ICON GOTHIC HUD');
+      drawGothicPanel(10, 10, 280, state.combo > 1 ? 200 : 176, 'NEO-ICON GOTHIC HUD');
       ctx.fillStyle = ART.bone;
       ctx.font = '16px Arial';
       ctx.fillText(`Score: ${state.score}`, 24, 40);
@@ -759,10 +869,11 @@
       ctx.fillText(`Level: ${state.level}`, 24, 88);
       ctx.fillText(`XP: ${state.xp}/${state.nextLevelXp}`, 24, 112);
       ctx.fillText(`Upgrades S/G/Spd: ${state.shieldLevel}/${state.gunLevel}/${state.speedLevel}`, 24, 136);
-      if (state.combo > 1) ctx.fillText(`Combo: x${state.combo}`, 24, 160);
+      ctx.fillText(`Time: ${Math.floor(state.runTime)}s Auto: ${state.autoFire ? 'ON' : 'OFF'}`, 24, 160);
+      if (state.combo > 1) ctx.fillText(`Combo: x${state.combo}`, 24, 184);
       ctx.fillStyle = ART.cyan;
       ctx.font = '12px Arial';
-      ctx.fillText(`Biome: ${['Ice Nebula', 'Violet Void', 'Emerald Cloud', 'Golden Storm'][biomeIndex()]}`, 24, state.combo > 1 ? 180 : 156);
+      ctx.fillText(`Biome: ${['Ice Nebula', 'Violet Void', 'Emerald Cloud', 'Golden Storm'][biomeIndex()]}`, 24, state.combo > 1 ? 204 : 180);
       drawRadar();
 
       if (state.upgradeMenu) {
@@ -889,6 +1000,7 @@
       drawFloatingTexts(cam);
       drawBullets(cam);
       drawOrbs(cam);
+      drawRelics(cam);
       drawShip(cam);
       drawPostProcess();
       drawHud();
@@ -899,6 +1011,7 @@
       const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
       state.keys[key] = true;
       if (e.key === ' ') { e.preventDefault(); shoot(); }
+      if (key === 'f') state.autoFire = !state.autoFire;
       if ((e.key === 'r' || e.key === 'R') && state.gameOver) resetGame();
       if (e.key === 'Enter' && !state.started) { state.started = true; startAudio(); }
       if (state.upgradeMenu && (key === '1' || key === '2' || key === '3')) {
