@@ -62,6 +62,10 @@
     const WORLD = { w: 1000000, h: 1000000 };
     const WORLD_HALF = WORLD.w / 2;
     const ZOOM = 0.62;
+    const BIOME_WIDTH = 2600;
+    const SHIP_BASE_THRUST = 0.115;
+    const SHIP_SPEED_UPGRADE = 0.028;
+    const SHIP_MAX_SPEED = 5.2;
     const BIOME_NAMES = ['Ice Nebula', 'Violet Void', 'Emerald Cloud', 'Golden Storm', 'Crimson Chapel', 'Solar Reef', 'Obsidian Choir', 'Aurora Crypt'];
     const ENEMY_TYPES = ['seraph', 'warden', 'archon', 'cherub', 'reaper', 'oracle'];
     const XP_GROWTH = 1.2;
@@ -168,7 +172,17 @@
         ctx.fillText(label, x + 12, y + 18);
       }
     }
-    function biomeIndex() { return ((Math.floor(ship.x / 1200) % BIOME_NAMES.length) + BIOME_NAMES.length) % BIOME_NAMES.length; }
+    function biomeSample() {
+      const shifted = ship.x + WORLD_HALF;
+      const raw = shifted / BIOME_WIDTH;
+      const base = Math.floor(raw);
+      const index = ((base % BIOME_NAMES.length) + BIOME_NAMES.length) % BIOME_NAMES.length;
+      const next = (index + 1) % BIOME_NAMES.length;
+      const local = raw - base;
+      const blend = Math.max(0, Math.min(1, (local - 0.62) / 0.34));
+      return { index, next, blend: blend * blend * (3 - 2 * blend) };
+    }
+    function biomeIndex() { return biomeSample().index; }
     function camera() {
       return {
         x: ship.x - canvas.width / (2 * ZOOM),
@@ -182,11 +196,11 @@
     }
 
     function spawnHeavenBackground() {
-      state.stars = Array.from({ length: 130 }, () => ({
-        x: rand(-WORLD_HALF, WORLD_HALF), y: rand(-WORLD_HALF, WORLD_HALF), size: rand(0.8, 2.3), speed: rand(0.08, 0.45), hue: rand(180, 320),
+      state.stars = Array.from({ length: 170 }, () => ({
+        x: rand(-WORLD_HALF, WORLD_HALF), y: rand(-WORLD_HALF, WORLD_HALF), size: rand(0.7, 1.8), speed: rand(0.015, 0.09), hue: rand(185, 260),
       }));
-      state.clouds = Array.from({ length: 14 }, () => ({
-        x: rand(-WORLD_HALF - 80, WORLD_HALF + 80), y: rand(-WORLD_HALF + 20, WORLD_HALF - 20), r: rand(28, 68), vx: rand(0.08, 0.26), hue: rand(30, 60), alpha: rand(0.08, 0.18),
+      state.clouds = Array.from({ length: 9 }, () => ({
+        x: rand(-WORLD_HALF - 80, WORLD_HALF + 80), y: rand(-WORLD_HALF + 20, WORLD_HALF - 20), r: rand(80, 180), vx: rand(0.012, 0.045), hue: rand(200, 290), alpha: rand(0.035, 0.075),
       }));
     }
 
@@ -355,7 +369,7 @@
 
     function dash() {
       if (state.dashLevel <= 0 || state.dashCooldown > 0 || state.gameOver || state.upgradeMenu || !state.started) return;
-      const force = 6 + state.dashLevel * 1.35;
+      const force = 3.8 + state.dashLevel * 0.75;
       ship.vx += Math.cos(ship.angle) * force;
       ship.vy += Math.sin(ship.angle) * force;
       state.invuln = Math.max(state.invuln, 24 + state.dashLevel * 8);
@@ -469,7 +483,7 @@
         state.eliteTimer = Math.max(720, 1050 - state.level * 20);
       }
       if (state.autoFire && state.cooldown <= 0) {
-        const target = nearestEnemy(950);
+        const target = nearestEnemy(1350);
         if (target) shoot(Math.atan2(target.y - ship.y, target.x - ship.x));
       }
       if (state.chainLevel > 0) {
@@ -532,7 +546,7 @@
       state.beat += 0.03 * state.dt;
       if (state.spawnTimer <= 0) {
         queueSpawns(1 + Math.floor(state.level / 3));
-        state.spawnTimer = Math.max(30, 90 - state.level * 3 + rand(-12, 12));
+        state.spawnTimer = Math.max(28, 82 - state.level * 3 + rand(-10, 10));
       }
 
       for (const warning of state.spawnWarnings) {
@@ -548,8 +562,8 @@
       }
       state.spawnWarnings = state.spawnWarnings.filter(w => !w.dead && Math.hypot(w.x - ship.x, w.y - ship.y) < 2600);
 
-      const rotSpeed = 0.075;
-      const thrust = 0.2 + state.speedLevel * 0.055;
+      const rotSpeed = 0.064;
+      const thrust = SHIP_BASE_THRUST + state.speedLevel * SHIP_SPEED_UPGRADE;
       if (state.keys.ArrowLeft || state.keys.a) ship.angle -= rotSpeed * state.dt;
       if (state.keys.ArrowRight || state.keys.d) ship.angle += rotSpeed * state.dt;
       if (state.keys.ArrowUp || state.keys.w) {
@@ -571,8 +585,14 @@
         ship.vy -= Math.sin(ship.angle) * thrust * 0.66 * state.dt;
       }
 
-      ship.vx *= 0.9935;
-      ship.vy *= 0.9935;
+      ship.vx *= 0.978;
+      ship.vy *= 0.978;
+      const shipSpeed = Math.hypot(ship.vx, ship.vy);
+      const maxSpeed = SHIP_MAX_SPEED + state.speedLevel * 0.35;
+      if (shipSpeed > maxSpeed) {
+        ship.vx = (ship.vx / shipSpeed) * maxSpeed;
+        ship.vy = (ship.vy / shipSpeed) * maxSpeed;
+      }
       ship.x += ship.vx * state.dt;
       ship.y += ship.vy * state.dt;
       ship.x = Math.max(-WORLD_HALF, Math.min(WORLD_HALF, ship.x));
@@ -717,109 +737,147 @@
       if (state.pendingLevelUps > 0) state.upgradeMenu = true;
     }
 
+    function hexToRgb(hex) {
+      const value = parseInt(hex.slice(1), 16);
+      return { r: (value >> 16) & 255, g: (value >> 8) & 255, b: value & 255 };
+    }
+    function mixHex(a, b, t) {
+      const ca = hexToRgb(a), cb = hexToRgb(b);
+      const r = Math.round(ca.r + (cb.r - ca.r) * t);
+      const g = Math.round(ca.g + (cb.g - ca.g) * t);
+      const bl = Math.round(ca.b + (cb.b - ca.b) * t);
+      return `rgb(${r},${g},${bl})`;
+    }
+
     function drawBackground(cam) {
       const pulse = 0.5 + Math.sin(state.beat) * 0.5;
-      const biomeX = biomeIndex();
+      const sample = biomeSample();
+      const biomeX = sample.index;
       const biomes = [
-        ['#111a3c', '#274f6c', '#78ccff'], // ice nebula
-        ['#221532', '#5b2a63', '#ff7ad8'], // violet void
-        ['#1b2a1d', '#29663d', '#90ef9d'], // emerald cloud
-        ['#2a1f14', '#8a5b2b', '#ffd089'], // golden storm
-        ['#310914', '#8a1d3b', '#ff7898'], // crimson chapel
-        ['#102831', '#2c7c87', '#d5fff6'], // solar reef
-        ['#05050a', '#232033', '#9f92ff'], // obsidian choir
-        ['#061d2b', '#17626f', '#c8fff1'], // aurora crypt
+        { top: '#071326', mid: '#102848', bottom: '#1f4f72', accent: '#78ccff', name: 'ice comet field' },
+        { top: '#10091f', mid: '#20143a', bottom: '#3c1f5a', accent: '#b67cff', name: 'violet deep space' },
+        { top: '#071c18', mid: '#12362d', bottom: '#1c5a48', accent: '#72f0bd', name: 'emerald nebula' },
+        { top: '#16110b', mid: '#33230e', bottom: '#5e3b13', accent: '#ffd089', name: 'gold dust belt' },
+        { top: '#1a0710', mid: '#33101d', bottom: '#5b1b2d', accent: '#ff7898', name: 'crimson ion storm' },
+        { top: '#061820', mid: '#0d343c', bottom: '#155967', accent: '#9ff8ff', name: 'solar reef' },
+        { top: '#05050a', mid: '#121422', bottom: '#272844', accent: '#9f92ff', name: 'obsidian choir' },
+        { top: '#03151f', mid: '#0b3441', bottom: '#125e6b', accent: '#c8fff1', name: 'aurora crypt' },
       ];
-      const palette = biomes[biomeX];
-      ctx.fillStyle = ART.ink;
+      const current = biomes[sample.index];
+      const next = biomes[sample.next];
+      const palette = {
+        top: mixHex(current.top, next.top, sample.blend),
+        mid: mixHex(current.mid, next.mid, sample.blend),
+        bottom: mixHex(current.bottom, next.bottom, sample.blend),
+        accent: mixHex(current.accent, next.accent, sample.blend),
+      };
+
+      ctx.fillStyle = '#030712';
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
-      g.addColorStop(0, palette[0]);
-      g.addColorStop(0.45, palette[1]);
-      g.addColorStop(1, palette[2]);
+      g.addColorStop(0, palette.top);
+      g.addColorStop(0.55, palette.mid);
+      g.addColorStop(1, palette.bottom);
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Stained-glass leading: big readable art-style shapes behind gameplay.
-      ctx.strokeStyle = 'rgba(255, 245, 207, 0.16)';
-      ctx.lineWidth = 2;
-      for (let i = -2; i < 9; i++) {
-        const x = i * 120 - ((cam.x * 0.08) % 120);
-        ctx.beginPath();
-        ctx.moveTo(x, 0);
-        ctx.lineTo(x + 180, canvas.height);
-        ctx.stroke();
-      }
+      // Soft nebula layers: big, slow, low-contrast shapes so gameplay remains readable.
+      ctx.globalAlpha = 0.26;
       for (let i = 0; i < 5; i++) {
-        ctx.strokeStyle = `hsla(${(biomeX * 70 + i * 32 + performance.now() * 0.01) % 360}, 100%, 78%, 0.14)`;
-        ctx.strokeRect(80 + i * 115 - ((cam.x * 0.035) % 120), 60 + i * 36 - ((cam.y * 0.035) % 80), 160, 96);
-      }
-
-      for (let i = 0; i < 12; i++) {
-        ctx.strokeStyle = `hsla(${(i * 45 + performance.now() * 0.02) % 360},100%,80%,0.18)`;
-        ctx.lineWidth = 1.5;
+        const x = ((i * 240 - cam.x * (0.02 + i * 0.006)) % (canvas.width + 360)) - 180;
+        const y = ((i * 150 - cam.y * (0.015 + i * 0.004)) % (canvas.height + 260)) - 130;
+        const r = 120 + i * 34 + pulse * 12;
+        const nebula = ctx.createRadialGradient(x, y, 0, x, y, r);
+        nebula.addColorStop(0, palette.accent.replace('rgb', 'rgba').replace(')', ',0.22)'));
+        nebula.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = nebula;
         ctx.beginPath();
-        ctx.moveTo(0, i * 70 + ((performance.now() * 0.03 + cam.y * 0.25) % 70));
-        ctx.lineTo(canvas.width, i * 70 + 45 + ((performance.now() * 0.03 + cam.y * 0.25) % 70));
-        ctx.stroke();
-      }
-
-      for (const c of state.clouds) {
-        const x = c.x - cam.x;
-        const y = c.y - cam.y;
-        const cg = ctx.createRadialGradient(x, y, c.r * 0.2, x, y, c.r);
-        cg.addColorStop(0, `hsla(${c.hue},100%,95%,${c.alpha + 0.08})`);
-        cg.addColorStop(1, `hsla(${c.hue},100%,90%,0)`);
-        ctx.fillStyle = cg;
-        ctx.beginPath();
-        ctx.arc(x, y, c.r, 0, Math.PI * 2);
+        ctx.arc(x, y, r, 0, Math.PI * 2);
         ctx.fill();
       }
+      ctx.globalAlpha = 1;
 
+      // Subtle star parallax layers.
       for (const s of state.stars) {
-        ctx.fillStyle = `hsla(${s.hue},100%,88%,0.9)`;
-        const sx = s.x - cam.x;
-        const sy = s.y - cam.y;
-        ctx.fillRect(Math.floor(sx), Math.floor(sy), 2, 2);
+        const sx = ((s.x - cam.x * 0.18) % (canvas.width + 20) + canvas.width + 20) % (canvas.width + 20) - 10;
+        const sy = ((s.y - cam.y * 0.18) % (canvas.height + 20) + canvas.height + 20) % (canvas.height + 20) - 10;
+        ctx.fillStyle = `hsla(${s.hue},70%,88%,0.72)`;
+        ctx.fillRect(Math.floor(sx), Math.floor(sy), s.size, s.size);
       }
-      for (const s of state.stars) {
-        ctx.fillStyle = `hsla(${(s.hue + 120) % 360},100%,90%,0.2)`;
-        ctx.fillRect(Math.floor((s.x - cam.x) * 0.6), Math.floor((s.y - cam.y) * 0.6), 2, 2);
+      for (const s of state.stars.slice(0, 80)) {
+        const sx = ((s.x - cam.x * 0.42) % (canvas.width + 20) + canvas.width + 20) % (canvas.width + 20) - 10;
+        const sy = ((s.y - cam.y * 0.42) % (canvas.height + 20) + canvas.height + 20) % (canvas.height + 20) - 10;
+        ctx.fillStyle = `hsla(${s.hue + 30},80%,92%,0.55)`;
+        ctx.fillRect(Math.floor(sx), Math.floor(sy), Math.max(1, s.size * 1.25), Math.max(1, s.size * 1.25));
       }
 
-      // Pixel biome decals (simple animated tile-like motifs).
-      const t = Math.floor(performance.now() * 0.03);
-      for (let i = 0; i < 42; i++) {
-        const x = ((i * 173 + t * 2) % (canvas.width + 60)) - 30;
-        const y = ((i * 97 + t) % (canvas.height + 60)) - 30;
-        if (biomeX === 0) { // ice crystals
-          ctx.fillStyle = '#d8f2ff';
-          ctx.fillRect(x, y, 3, 9); ctx.fillRect(x - 3, y + 3, 9, 3);
-        } else if (biomeX === 1) { // void runes
-          ctx.fillStyle = '#ff9df0';
-          ctx.fillRect(x, y, 6, 2); ctx.fillRect(x + 2, y - 2, 2, 6);
-        } else if (biomeX === 2) { // emerald spores
-          ctx.fillStyle = '#a8ffb0';
-          ctx.fillRect(x, y, 2, 2); ctx.fillRect(x + 3, y + 2, 2, 2);
-        } else if (biomeX === 3) { // golden embers
-          ctx.fillStyle = '#ffd57e';
-          ctx.fillRect(x, y, 2, 5); ctx.fillRect(x + 2, y + 2, 2, 2);
-        } else if (biomeX === 4) { // crimson chapel crosses
-          ctx.fillStyle = '#ff7898';
-          ctx.fillRect(x, y - 4, 2, 10); ctx.fillRect(x - 4, y, 10, 2);
-        } else if (biomeX === 5) { // solar reef coral
-          ctx.fillStyle = '#d5fff6';
-          ctx.fillRect(x, y, 2, 8); ctx.fillRect(x + 3, y + 2, 2, 5); ctx.fillRect(x - 3, y + 4, 2, 4);
-        } else if (biomeX === 6) { // obsidian choir monoliths
-          ctx.fillStyle = i % 2 ? '#9f92ff' : '#fff5cf';
-          ctx.fillRect(x - 3, y - 9, 6, 18); ctx.fillRect(x - 7, y + 5, 14, 3);
-          ctx.fillStyle = 'rgba(5,5,10,0.7)';
-          ctx.fillRect(x - 1, y - 5, 2, 7);
-        } else { // aurora crypt animated curtains
-          ctx.fillStyle = i % 2 ? '#8ef3ff' : '#ffd86b';
-          ctx.fillRect(x, y - 8, 2, 16); ctx.fillRect(x + 4, y - 4 + (t % 4), 2, 10);
-          ctx.fillRect(x - 4, y + 2 - (t % 4), 2, 8);
+      // Space landmarks that explain biomes without flooding the combat layer.
+      const t = performance.now() * 0.001;
+      ctx.save();
+      ctx.globalAlpha = 0.38;
+      ctx.strokeStyle = palette.accent;
+      ctx.fillStyle = palette.accent;
+      if (biomeX === 0) { // comet shards
+        for (let i = 0; i < 10; i++) {
+          const x = ((i * 191 - cam.x * 0.08) % (canvas.width + 140)) - 70;
+          const y = ((i * 89 - cam.y * 0.05) % (canvas.height + 100)) - 50;
+          ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 26, y + 8); ctx.lineTo(x + 6, y + 28); ctx.closePath(); ctx.stroke();
         }
+      } else if (biomeX === 1) { // distant portal rings
+        for (let i = 0; i < 5; i++) {
+          const x = ((i * 230 - cam.x * 0.06) % (canvas.width + 180)) - 90;
+          const y = ((i * 130 - cam.y * 0.04) % (canvas.height + 140)) - 70;
+          ctx.beginPath(); ctx.arc(x, y, 18 + Math.sin(t + i) * 3, 0, Math.PI * 2); ctx.stroke();
+        }
+      } else if (biomeX === 2) { // nebula spores
+        for (let i = 0; i < 18; i++) {
+          const x = ((i * 137 - cam.x * 0.055) % (canvas.width + 100)) - 50;
+          const y = ((i * 83 - cam.y * 0.045) % (canvas.height + 90)) - 45;
+          ctx.fillRect(x, y, 3, 3); ctx.fillRect(x + 7, y + 4, 2, 2);
+        }
+      } else if (biomeX === 3) { // asteroid-dust lanes
+        ctx.globalAlpha = 0.2;
+        for (let i = 0; i < 6; i++) {
+          ctx.beginPath();
+          ctx.moveTo(-60, i * 95 + ((cam.y * 0.06 + t * 20) % 95));
+          ctx.lineTo(canvas.width + 60, i * 95 + 35 + ((cam.y * 0.06 + t * 20) % 95));
+          ctx.stroke();
+        }
+      } else if (biomeX === 4) { // ion lightning far behind playfield
+        ctx.globalAlpha = 0.18;
+        for (let i = 0; i < 5; i++) {
+          const x = ((i * 180 - cam.x * 0.04) % (canvas.width + 100)) - 50;
+          ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + 28, 90); ctx.lineTo(x - 8, 190); ctx.lineTo(x + 20, canvas.height); ctx.stroke();
+        }
+      } else if (biomeX === 5) { // reef arcs
+        for (let i = 0; i < 7; i++) {
+          const x = ((i * 160 - cam.x * 0.07) % (canvas.width + 120)) - 60;
+          const y = ((i * 110 - cam.y * 0.05) % (canvas.height + 100)) - 50;
+          ctx.beginPath(); ctx.arc(x, y, 28, Math.PI * 0.1, Math.PI * 1.2); ctx.stroke();
+        }
+      } else if (biomeX === 6) { // monolith silhouettes
+        ctx.globalAlpha = 0.22;
+        for (let i = 0; i < 8; i++) {
+          const x = ((i * 155 - cam.x * 0.05) % (canvas.width + 120)) - 60;
+          const h = 50 + (i % 3) * 28;
+          ctx.fillRect(x, canvas.height - h - 20, 12, h);
+        }
+      } else { // aurora curtains
+        ctx.globalAlpha = 0.18;
+        for (let i = 0; i < 7; i++) {
+          const x = i * 120 - ((cam.x * 0.035 + t * 18) % 120);
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.bezierCurveTo(x + 35, 130, x - 30, 260, x + 25, canvas.height);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+
+      // Biome transition veil: tells the player the region is changing smoothly.
+      if (sample.blend > 0.05) {
+        ctx.fillStyle = `rgba(255,255,255,${0.035 * sample.blend})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
       }
     }
 
@@ -1072,9 +1130,38 @@
       }
     }
 
+    function drawNearestEnemyGuide(cam) {
+      const target = nearestEnemy(2000);
+      if (!target) return;
+      const dx = target.x - ship.x;
+      const dy = target.y - ship.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 260) return;
+      const angle = Math.atan2(dy, dx);
+      const x = canvas.width / 2 + Math.cos(angle) * 78;
+      const y = canvas.height / 2 + Math.sin(angle) * 78;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+      ctx.fillStyle = 'rgba(255,216,107,0.88)';
+      ctx.beginPath();
+      ctx.moveTo(14, 0);
+      ctx.lineTo(-8, -6);
+      ctx.lineTo(-4, 0);
+      ctx.lineTo(-8, 6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+      ctx.fillStyle = 'rgba(255,245,207,0.78)';
+      ctx.font = '11px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${Math.round(dist)}m`, x, y + 20);
+      ctx.textAlign = 'left';
+    }
+
     function drawRadar() {
       const mapW = 150, mapH = 110, mapX = canvas.width - mapW - 14, mapY = 14;
-      const range = 1400;
+      const range = 2200;
       drawGothicPanel(mapX, mapY, mapW, mapH, 'RADAR');
       ctx.strokeStyle = 'rgba(157,231,255,0.25)';
       ctx.beginPath();
@@ -1287,6 +1374,7 @@
       drawSpawnWarnings(cam);
       for (const r of state.rocks) if (isOnScreen(r, cam, r.r + 80)) drawAngelRock(r, cam);
       drawThreatIndicators(cam);
+      drawNearestEnemyGuide(cam);
       drawParticles(cam);
       drawFloatingTexts(cam);
       drawBullets(cam);
