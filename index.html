@@ -62,9 +62,13 @@
     const WORLD = { w: 1000000, h: 1000000 };
     const WORLD_HALF = WORLD.w / 2;
     const ZOOM = 0.62;
-    const BIOME_NAMES = ['Ice Nebula', 'Violet Void', 'Emerald Cloud', 'Golden Storm'];
-    const ENEMY_TYPES = ['seraph', 'warden', 'archon'];
+    const BIOME_NAMES = ['Ice Nebula', 'Violet Void', 'Emerald Cloud', 'Golden Storm', 'Crimson Chapel', 'Solar Reef'];
+    const ENEMY_TYPES = ['seraph', 'warden', 'archon', 'cherub', 'reaper'];
     const XP_GROWTH = 1.2;
+    const MAX_PARTICLES = 360;
+    const MAX_FLOATING_TEXTS = 48;
+    const MAX_ENEMIES = 90;
+    const MAX_PICKUPS = 140;
     const state = {
       keys: {},
       score: 0,
@@ -80,6 +84,11 @@
       shieldLevel: 0,
       gunLevel: 0,
       speedLevel: 0,
+      bladeLevel: 0,
+      chainLevel: 0,
+      magnetLevel: 0,
+      chainTimer: 180,
+      chainFlash: 0,
       spawnTimer: 90,
       eliteTimer: 900,
       runTime: 0,
@@ -151,6 +160,11 @@
         y: ship.y - canvas.height / (2 * ZOOM),
       };
     }
+    function isOnScreen(entity, cam, padding = 120) {
+      const x = entity.x - cam.x;
+      const y = entity.y - cam.y;
+      return x > -padding && x < canvas.width + padding && y > -padding && y < canvas.height + padding;
+    }
 
     function spawnHeavenBackground() {
       state.stars = Array.from({ length: 130 }, () => ({
@@ -180,6 +194,8 @@
     }
 
     function queueSpawns(count) {
+      const availableSlots = Math.max(0, MAX_ENEMIES - state.rocks.length - state.spawnWarnings.length);
+      count = Math.min(count, availableSlots);
       for (let i = 0; i < count; i++) {
         const angle = rand(0, Math.PI * 2);
         const distance = rand(720, 1150);
@@ -210,6 +226,11 @@
       state.shieldLevel = 0;
       state.gunLevel = 0;
       state.speedLevel = 0;
+      state.bladeLevel = 0;
+      state.chainLevel = 0;
+      state.magnetLevel = 0;
+      state.chainTimer = 180;
+      state.chainFlash = 0;
       state.spawnTimer = 90;
       state.eliteTimer = 900;
       state.runTime = 0;
@@ -266,6 +287,7 @@
 
     function addFloatingText(text, x, y, color = '#fff5cf') {
       state.floatingTexts.push({ text, x, y, vy: -0.45, life: 70, max: 70, color });
+      if (state.floatingTexts.length > MAX_FLOATING_TEXTS) state.floatingTexts.splice(0, state.floatingTexts.length - MAX_FLOATING_TEXTS);
     }
 
     function addXp(amount) {
@@ -284,6 +306,7 @@
         const s = rand(0.7, 3.8);
         state.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(20, 45), max: 45, hue: rand(0, 360), size: rand(1.8, 4.2) });
       }
+      if (state.particles.length > MAX_PARTICLES) state.particles.splice(0, state.particles.length - MAX_PARTICLES);
     }
 
     function shoot(targetAngle = ship.angle) {
@@ -316,6 +339,30 @@
       return best;
     }
 
+    function defeatEnemy(r) {
+      r.dead = true;
+      state.combo++;
+      state.comboTimer = 180;
+      const points = (r.elite ? 180 : 20) * Math.max(1, state.combo);
+      state.score += points;
+      addFloatingText(`+${points} x${state.combo}`, r.x, r.y, '#fff5cf');
+      explode(r.x, r.y, r.elite ? 70 : 28);
+      if (r.elite) state.relics.push({ x: r.x, y: r.y, r: 14, value: 160, hue: 48 });
+      else state.xpOrbs.push({ x: r.x, y: r.y, value: rand(20, 36), r: 7, hue: rand(170, 320) });
+      if (state.xpOrbs.length > MAX_PICKUPS) state.xpOrbs.splice(0, state.xpOrbs.length - MAX_PICKUPS);
+    }
+
+    function damageEnemy(r, damage = 1, color = ART.cyan) {
+      r.hp = (r.hp || 1) - damage;
+      state.shake = Math.max(state.shake, r.elite ? 7 : 4);
+      if (r.hp > 0) {
+        addFloatingText(`${Math.ceil(r.hp)}`, r.x, r.y - r.r, color);
+        return false;
+      }
+      defeatEnemy(r);
+      return true;
+    }
+
     function queueEliteSpawn() {
       const angle = rand(0, Math.PI * 2);
       const distance = rand(860, 1250);
@@ -340,6 +387,7 @@
       if (state.shake > 0) state.shake *= 0.88;
       if (state.shake < 0.1) state.shake = 0;
       if (state.comboTimer > 0) state.comboTimer -= state.dt; else state.combo = 0;
+      if (state.chainFlash > 0) state.chainFlash -= state.dt;
       state.runTime += state.dt / 60;
       state.eliteTimer -= state.dt;
       if (state.eliteTimer <= 0) {
@@ -349,6 +397,38 @@
       if (state.autoFire && state.cooldown <= 0) {
         const target = nearestEnemy(950);
         if (target) shoot(Math.atan2(target.y - ship.y, target.x - ship.x));
+      }
+      if (state.chainLevel > 0) {
+        state.chainTimer -= state.dt;
+        if (state.chainTimer <= 0) {
+          const hits = Math.min(1 + state.chainLevel, state.rocks.length);
+          const targets = [...state.rocks]
+            .sort((a, b) => Math.hypot(a.x - ship.x, a.y - ship.y) - Math.hypot(b.x - ship.x, b.y - ship.y))
+            .slice(0, hits);
+          for (const target of targets) {
+            if (Math.hypot(target.x - ship.x, target.y - ship.y) < 720) {
+              damageEnemy(target, 1, ART.violet);
+              state.particles.push({ x: target.x, y: target.y, vx: 0, vy: 0, life: 18, max: 18, hue: 282, size: 6 });
+            }
+          }
+          state.chainFlash = 12;
+          state.chainTimer = Math.max(45, 150 - state.chainLevel * 18);
+          if (state.particles.length > MAX_PARTICLES) state.particles.splice(0, state.particles.length - MAX_PARTICLES);
+        }
+      }
+      if (state.bladeLevel > 0) {
+        const bladeCount = Math.min(6, state.bladeLevel + 1);
+        const orbit = 54 + state.bladeLevel * 8;
+        for (let i = 0; i < bladeCount; i++) {
+          const a = state.beat * 2.8 + (Math.PI * 2 * i) / bladeCount;
+          const blade = { x: ship.x + Math.cos(a) * orbit, y: ship.y + Math.sin(a) * orbit };
+          for (const r of state.rocks) {
+            if (!r.bladeHit && hit(blade, r, r.r + 8)) {
+              r.bladeHit = 16;
+              damageEnemy(r, 1, ART.gold);
+            }
+          }
+        }
       }
       state.spawnTimer -= state.dt;
       state.beat += 0.03 * state.dt;
@@ -386,6 +466,7 @@
             life: rand(8, 16), max: 16, hue: rand(20, 60), size: rand(1.2, 2.8),
           });
         }
+        if (state.particles.length > MAX_PARTICLES) state.particles.splice(0, state.particles.length - MAX_PARTICLES);
       }
       if (state.keys.ArrowDown || state.keys.s) {
         ship.vx -= Math.cos(ship.angle) * thrust * 0.66 * state.dt;
@@ -411,6 +492,8 @@
       state.bullets = state.bullets.filter(b => b.life > 0);
 
       for (const r of state.rocks) {
+        if (r.bladeHit > 0) r.bladeHit -= state.dt;
+        else r.bladeHit = 0;
         const dx = ship.x - r.x;
         const dy = ship.y - r.y;
         const dist = Math.hypot(dx, dy) || 1;
@@ -423,6 +506,12 @@
         } else if (r.type === 'archon') {
           r.vx += (-dy / dist) * 0.012 * state.dt;
           r.vy += (dx / dist) * 0.012 * state.dt;
+        } else if (r.type === 'cherub') {
+          r.vx += (dx / dist) * 0.028 * state.dt;
+          r.vy += (dy / dist) * 0.028 * state.dt;
+        } else if (r.type === 'reaper') {
+          r.vx += (-dx / dist) * 0.006 * state.dt;
+          r.vy += (-dy / dist) * 0.006 * state.dt;
         }
         const speed = Math.hypot(r.vx, r.vy);
         if (speed > 2.8) { r.vx = (r.vx / speed) * 2.8; r.vy = (r.vy / speed) * 2.8; }
@@ -445,21 +534,7 @@
         for (const r of state.rocks) {
           if (hit(b, r, r.r)) {
             b.life = -1;
-            r.hp = (r.hp || 1) - 1;
-            state.shake = Math.max(state.shake, r.elite ? 7 : 4);
-            if (r.hp > 0) {
-              addFloatingText(`${r.hp}`, r.x, r.y - r.r, ART.cyan);
-              break;
-            }
-            r.dead = true;
-            state.combo++;
-            state.comboTimer = 180;
-            const points = (r.elite ? 180 : 20) * Math.max(1, state.combo);
-            state.score += points;
-            addFloatingText(`+${points} x${state.combo}`, r.x, r.y, '#fff5cf');
-            explode(r.x, r.y, r.elite ? 70 : 28);
-            if (r.elite) state.relics.push({ x: r.x, y: r.y, r: 14, value: 160, hue: 48 });
-            else state.xpOrbs.push({ x: r.x, y: r.y, value: rand(20, 36), r: 7, hue: rand(170, 320) });
+            damageEnemy(r, 1, ART.cyan);
             break;
           }
         }
@@ -500,8 +575,9 @@
         const dx = ship.x - orb.x;
         const dy = ship.y - orb.y;
         const dist = Math.hypot(dx, dy);
-        if (dist < 260) {
-          const pull = 1.2 + (260 - dist) * 0.02;
+        const magnetRange = 260 + state.magnetLevel * 70;
+        if (dist < magnetRange) {
+          const pull = 1.2 + (magnetRange - dist) * (0.02 + state.magnetLevel * 0.003);
           orb.x += (dx / (dist || 1)) * pull * state.dt;
           orb.y += (dy / (dist || 1)) * pull * state.dt;
         }
@@ -515,8 +591,9 @@
         const dx = ship.x - relic.x;
         const dy = ship.y - relic.y;
         const dist = Math.hypot(dx, dy);
-        if (dist < 320) {
-          const pull = 1.5 + (320 - dist) * 0.018;
+        const relicMagnetRange = 320 + state.magnetLevel * 70;
+        if (dist < relicMagnetRange) {
+          const pull = 1.5 + (relicMagnetRange - dist) * (0.018 + state.magnetLevel * 0.003);
           relic.x += (dx / (dist || 1)) * pull * state.dt;
           relic.y += (dy / (dist || 1)) * pull * state.dt;
         }
@@ -528,6 +605,7 @@
         }
       }
       state.relics = state.relics.filter(relic => !relic.dead);
+      if (state.relics.length > 24) state.relics.splice(0, state.relics.length - 24);
       for (const text of state.floatingTexts) {
         text.y += text.vy * state.dt;
         text.life -= state.dt;
@@ -544,8 +622,10 @@
         ['#221532', '#5b2a63', '#ff7ad8'], // violet void
         ['#1b2a1d', '#29663d', '#90ef9d'], // emerald cloud
         ['#2a1f14', '#8a5b2b', '#ffd089'], // golden storm
+        ['#310914', '#8a1d3b', '#ff7898'], // crimson chapel
+        ['#102831', '#2c7c87', '#d5fff6'], // solar reef
       ];
-      const palette = biomes[(biomeX + 4) % 4];
+      const palette = biomes[biomeX];
       ctx.fillStyle = ART.ink;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
       const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
@@ -607,18 +687,24 @@
       for (let i = 0; i < 42; i++) {
         const x = ((i * 173 + t * 2) % (canvas.width + 60)) - 30;
         const y = ((i * 97 + t) % (canvas.height + 60)) - 30;
-        if ((biomeX + 4) % 4 === 0) { // ice crystals
+        if (biomeX === 0) { // ice crystals
           ctx.fillStyle = '#d8f2ff';
           ctx.fillRect(x, y, 3, 9); ctx.fillRect(x - 3, y + 3, 9, 3);
-        } else if ((biomeX + 4) % 4 === 1) { // void runes
+        } else if (biomeX === 1) { // void runes
           ctx.fillStyle = '#ff9df0';
           ctx.fillRect(x, y, 6, 2); ctx.fillRect(x + 2, y - 2, 2, 6);
-        } else if ((biomeX + 4) % 4 === 2) { // emerald spores
+        } else if (biomeX === 2) { // emerald spores
           ctx.fillStyle = '#a8ffb0';
           ctx.fillRect(x, y, 2, 2); ctx.fillRect(x + 3, y + 2, 2, 2);
-        } else { // golden embers
+        } else if (biomeX === 3) { // golden embers
           ctx.fillStyle = '#ffd57e';
           ctx.fillRect(x, y, 2, 5); ctx.fillRect(x + 2, y + 2, 2, 2);
+        } else if (biomeX === 4) { // crimson chapel crosses
+          ctx.fillStyle = '#ff7898';
+          ctx.fillRect(x, y - 4, 2, 10); ctx.fillRect(x - 4, y, 10, 2);
+        } else { // solar reef coral
+          ctx.fillStyle = '#d5fff6';
+          ctx.fillRect(x, y, 2, 8); ctx.fillRect(x + 3, y + 2, 2, 5); ctx.fillRect(x - 3, y + 4, 2, 4);
         }
       }
     }
@@ -686,7 +772,7 @@
       ctx.rotate(r.angle);
 
       const bob = Math.sin(performance.now() * 0.004 + r.x * 0.01) * 2;
-      ctx.shadowColor = r.type === 'archon' ? ART.violet : r.type === 'warden' ? ART.cyan : ART.gold;
+      ctx.shadowColor = r.type === 'reaper' ? ART.magenta : r.type === 'cherub' ? '#90ef9d' : r.type === 'archon' ? ART.violet : r.type === 'warden' ? ART.cyan : ART.gold;
       ctx.shadowBlur = 12;
       if (r.type === 'dread') {
         ctx.strokeStyle = ART.magenta;
@@ -712,6 +798,20 @@
           i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
         }
         ctx.closePath();
+        ctx.stroke();
+      } else if (r.type === 'cherub') {
+        ctx.strokeStyle = 'hsla(120,100%,82%,0.82)';
+        ctx.lineWidth = 1.4;
+        ctx.strokeRect(-r.r * 0.45, -r.r * 0.45 + bob, r.r * 0.9, r.r * 0.9);
+        ctx.strokeRect(-r.r * 0.65, -r.r * 0.12 + bob, r.r * 1.3, r.r * 0.24);
+      } else if (r.type === 'reaper') {
+        ctx.strokeStyle = 'hsla(0,100%,75%,0.82)';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(-r.r, -r.r * 0.25);
+        ctx.lineTo(r.r, r.r * 0.25);
+        ctx.moveTo(-r.r * 0.25, r.r);
+        ctx.lineTo(r.r * 0.25, -r.r);
         ctx.stroke();
       } else {
         ctx.strokeStyle = 'hsla(300,100%,80%,0.75)';
@@ -865,19 +965,20 @@
     }
 
     function drawHud() {
-      drawGothicPanel(10, 10, 280, state.combo > 1 ? 200 : 176, 'NEO-ICON GOTHIC HUD');
+      drawGothicPanel(10, 10, 300, state.combo > 1 ? 224 : 200, 'NEO-ICON GOTHIC HUD');
       ctx.fillStyle = ART.bone;
       ctx.font = '16px Arial';
       ctx.fillText(`Score: ${state.score}`, 24, 40);
       ctx.fillText(`Lives: ${state.lives}`, 24, 64);
       ctx.fillText(`Level: ${state.level}`, 24, 88);
       ctx.fillText(`XP: ${state.xp}/${state.nextLevelXp}`, 24, 112);
-      ctx.fillText(`Upgrades S/G/Spd: ${state.shieldLevel}/${state.gunLevel}/${state.speedLevel}`, 24, 136);
-      ctx.fillText(`Time: ${Math.floor(state.runTime)}s Auto: ${state.autoFire ? 'ON' : 'OFF'}`, 24, 160);
-      if (state.combo > 1) ctx.fillText(`Combo: x${state.combo}`, 24, 184);
+      ctx.fillText(`Core S/G/Spd: ${state.shieldLevel}/${state.gunLevel}/${state.speedLevel}`, 24, 136);
+      ctx.fillText(`Powers B/C/M: ${state.bladeLevel}/${state.chainLevel}/${state.magnetLevel}`, 24, 160);
+      ctx.fillText(`Time: ${Math.floor(state.runTime)}s Auto: ${state.autoFire ? 'ON' : 'OFF'}`, 24, 184);
+      if (state.combo > 1) ctx.fillText(`Combo: x${state.combo}`, 24, 208);
       ctx.fillStyle = ART.cyan;
       ctx.font = '12px Arial';
-      ctx.fillText(`Biome: ${BIOME_NAMES[biomeIndex()]}`, 24, state.combo > 1 ? 204 : 180);
+      ctx.fillText(`Biome: ${BIOME_NAMES[biomeIndex()]}`, 24, state.combo > 1 ? 228 : 204);
       drawRadar();
 
       if (state.upgradeMenu) {
@@ -890,9 +991,12 @@
         ctx.font = '22px Arial';
         ctx.fillText(`1) Shield (+1 charge, now ${state.shieldLevel})`, canvas.width / 2, canvas.height / 2 - 32);
         ctx.fillText(`2) Better Guns (spread/rate, now ${state.gunLevel}/3)`, canvas.width / 2, canvas.height / 2 + 8);
-        ctx.fillText(`3) More Speed (thrust, now ${state.speedLevel}/5)`, canvas.width / 2, canvas.height / 2 + 48);
+        ctx.fillText(`3) More Speed (thrust, now ${state.speedLevel}/5)`, canvas.width / 2, canvas.height / 2 + 36);
+        ctx.fillText(`4) Halo Blades (orbit, now ${state.bladeLevel}/5)`, canvas.width / 2, canvas.height / 2 + 70);
+        ctx.fillText(`5) Chain Smite (auto lightning, now ${state.chainLevel}/5)`, canvas.width / 2, canvas.height / 2 + 104);
+        ctx.fillText(`6) Relic Magnet (pickup pull, now ${state.magnetLevel}/5)`, canvas.width / 2, canvas.height / 2 + 138);
         ctx.font = '16px Arial';
-        ctx.fillText('Tip: shield forgives collisions; guns level 2 unlocks triple-shot.', canvas.width / 2, canvas.height / 2 + 86);
+        ctx.fillText('Tip: survivor builds stack weapons, passives, and relic drops.', canvas.width / 2, canvas.height / 2 + 176);
         ctx.textAlign = 'left';
       } else if (!state.started) {
         ctx.fillStyle = 'rgba(2, 2, 10, 0.97)';
@@ -964,6 +1068,33 @@
 
 
 
+
+    function drawAbilities(cam) {
+      if (state.bladeLevel > 0) {
+        const bladeCount = Math.min(6, state.bladeLevel + 1);
+        const orbit = 54 + state.bladeLevel * 8;
+        ctx.shadowColor = ART.gold;
+        ctx.shadowBlur = 10;
+        for (let i = 0; i < bladeCount; i++) {
+          const a = state.beat * 2.8 + (Math.PI * 2 * i) / bladeCount;
+          drawPixelDiamond(ship.x + Math.cos(a) * orbit - cam.x, ship.y + Math.sin(a) * orbit - cam.y, 5, ART.gold);
+        }
+        ctx.shadowBlur = 0;
+      }
+      if (state.chainLevel > 0 && state.chainFlash > 0) {
+        ctx.strokeStyle = `rgba(141, 99, 255, ${state.chainFlash / 12})`;
+        ctx.lineWidth = 2;
+        for (const r of state.rocks.slice(0, state.chainLevel + 1)) {
+          if (Math.hypot(r.x - ship.x, r.y - ship.y) < 720) {
+            ctx.beginPath();
+            ctx.moveTo(ship.x - cam.x, ship.y - cam.y);
+            ctx.lineTo(r.x - cam.x, r.y - cam.y);
+            ctx.stroke();
+          }
+        }
+      }
+    }
+
     function drawPostProcess() {
       const vignette = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, canvas.width * 0.15, canvas.width / 2, canvas.height / 2, canvas.width * 0.72);
       vignette.addColorStop(0, 'rgba(0,0,0,0)');
@@ -998,13 +1129,14 @@
       }
       drawBackground(cam);
       drawSpawnWarnings(cam);
-      for (const r of state.rocks) drawAngelRock(r, cam);
+      for (const r of state.rocks) if (isOnScreen(r, cam, r.r + 80)) drawAngelRock(r, cam);
       drawThreatIndicators(cam);
       drawParticles(cam);
       drawFloatingTexts(cam);
       drawBullets(cam);
       drawOrbs(cam);
       drawRelics(cam);
+      drawAbilities(cam);
       drawShip(cam);
       drawPostProcess();
       drawHud();
@@ -1018,10 +1150,13 @@
       if (key === 'f') state.autoFire = !state.autoFire;
       if ((e.key === 'r' || e.key === 'R') && state.gameOver) resetGame();
       if (e.key === 'Enter' && !state.started) { state.started = true; startAudio(); }
-      if (state.upgradeMenu && (key === '1' || key === '2' || key === '3')) {
+      if (state.upgradeMenu && ['1', '2', '3', '4', '5', '6'].includes(key)) {
         if (key === '1') state.shieldLevel++;
         if (key === '2') state.gunLevel = Math.min(3, state.gunLevel + 1);
         if (key === '3') state.speedLevel = Math.min(5, state.speedLevel + 1);
+        if (key === '4') state.bladeLevel = Math.min(5, state.bladeLevel + 1);
+        if (key === '5') state.chainLevel = Math.min(5, state.chainLevel + 1);
+        if (key === '6') state.magnetLevel = Math.min(5, state.magnetLevel + 1);
         state.pendingLevelUps--;
         if (state.pendingLevelUps <= 0) state.upgradeMenu = false;
       }
