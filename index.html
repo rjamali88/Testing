@@ -60,7 +60,11 @@
     };
 
     const WORLD = { w: 1000000, h: 1000000 };
+    const WORLD_HALF = WORLD.w / 2;
     const ZOOM = 0.62;
+    const BIOME_NAMES = ['Ice Nebula', 'Violet Void', 'Emerald Cloud', 'Golden Storm'];
+    const ENEMY_TYPES = ['seraph', 'warden', 'archon'];
+    const XP_GROWTH = 1.2;
     const state = {
       keys: {},
       score: 0,
@@ -114,6 +118,7 @@
     ];
 
     function rand(min, max) { return Math.random() * (max - min) + min; }
+    function pick(list) { return list[Math.floor(rand(0, list.length))]; }
     function drawPixelDiamond(x, y, size, color) {
       ctx.fillStyle = color;
       ctx.fillRect(x, y - size, size, size);
@@ -139,7 +144,7 @@
         ctx.fillText(label, x + 12, y + 18);
       }
     }
-    function biomeIndex() { return ((Math.floor(ship.x / 1200) % 4) + 4) % 4; }
+    function biomeIndex() { return ((Math.floor(ship.x / 1200) % BIOME_NAMES.length) + BIOME_NAMES.length) % BIOME_NAMES.length; }
     function camera() {
       return {
         x: ship.x - canvas.width / (2 * ZOOM),
@@ -149,16 +154,15 @@
 
     function spawnHeavenBackground() {
       state.stars = Array.from({ length: 130 }, () => ({
-        x: rand(-500000, 500000), y: rand(-500000, 500000), size: rand(0.8, 2.3), speed: rand(0.08, 0.45), hue: rand(180, 320),
+        x: rand(-WORLD_HALF, WORLD_HALF), y: rand(-WORLD_HALF, WORLD_HALF), size: rand(0.8, 2.3), speed: rand(0.08, 0.45), hue: rand(180, 320),
       }));
       state.clouds = Array.from({ length: 14 }, () => ({
-        x: rand(-500080, 500080), y: rand(-499980, 499980), r: rand(28, 68), vx: rand(0.08, 0.26), hue: rand(30, 60), alpha: rand(0.08, 0.18),
+        x: rand(-WORLD_HALF - 80, WORLD_HALF + 80), y: rand(-WORLD_HALF + 20, WORLD_HALF - 20), r: rand(28, 68), vx: rand(0.08, 0.26), hue: rand(30, 60), alpha: rand(0.08, 0.18),
       }));
     }
 
     function spawnRocks(count) {
       for (let i = 0; i < count; i++) {
-        const edge = Math.floor(rand(0, 4));
         const rock = {
           x: ship.x + rand(-900, 900),
           y: ship.y + rand(-900, 900),
@@ -167,7 +171,7 @@
           angle: rand(0, Math.PI * 2),
           spin: rand(-0.02, 0.02),
           r: rand(18, 44),
-          type: ['seraph', 'warden', 'archon'][Math.floor(rand(0, 3))],
+          type: pick(ENEMY_TYPES),
           hp: 1,
           elite: false,
         };
@@ -184,7 +188,7 @@
           y: ship.y + Math.sin(angle) * distance,
           timer: 70 + rand(0, 30),
           r: rand(18, 44),
-          type: ['seraph', 'warden', 'archon'][Math.floor(rand(0, 3))],
+          type: pick(ENEMY_TYPES),
           elite: false,
           hp: 1,
         });
@@ -262,6 +266,16 @@
 
     function addFloatingText(text, x, y, color = '#fff5cf') {
       state.floatingTexts.push({ text, x, y, vy: -0.45, life: 70, max: 70, color });
+    }
+
+    function addXp(amount) {
+      state.xp += amount;
+      while (state.xp >= state.nextLevelXp) {
+        state.xp -= state.nextLevelXp;
+        state.level++;
+        state.nextLevelXp = Math.floor(state.nextLevelXp * XP_GROWTH);
+        state.pendingLevelUps++;
+      }
     }
 
     function explode(x, y, count = 24) {
@@ -382,11 +396,11 @@
       ship.vy *= 0.9935;
       ship.x += ship.vx * state.dt;
       ship.y += ship.vy * state.dt;
-      ship.x = Math.max(-500000, Math.min(500000, ship.x));
-      ship.y = Math.max(-500000, Math.min(500000, ship.y));
+      ship.x = Math.max(-WORLD_HALF, Math.min(WORLD_HALF, ship.x));
+      ship.y = Math.max(-WORLD_HALF, Math.min(WORLD_HALF, ship.y));
 
-      for (const s of state.stars) { s.y += s.speed * state.dt; if (s.y > 500002) { s.y = -500002; s.x = rand(-500000, 500000); } }
-      for (const c of state.clouds) { c.x += c.vx * state.dt; if (c.x > 500090) c.x = -500090; }
+      for (const s of state.stars) { s.y += s.speed * state.dt; if (s.y > WORLD_HALF + 2) { s.y = -WORLD_HALF - 2; s.x = rand(-WORLD_HALF, WORLD_HALF); } }
+      for (const c of state.clouds) { c.x += c.vx * state.dt; if (c.x > WORLD_HALF + 90) c.x = -WORLD_HALF - 90; }
 
       for (const b of state.bullets) {
         b.x += b.vx * state.dt;
@@ -472,7 +486,7 @@
           ship.vx = 0;
           ship.vy = 0;
           state.deathOverlay = 120;
-          state.deathQuote = proverbs[Math.floor(Math.random() * proverbs.length)];
+          state.deathQuote = pick(proverbs);
           if (state.lives <= 0) {
             state.gameOver = true;
             state.won = false;
@@ -493,13 +507,7 @@
         }
         if (dist < ship.radius + orb.r + 6) {
           orb.dead = true;
-          state.xp += orb.value;
-          while (state.xp >= state.nextLevelXp) {
-            state.xp -= state.nextLevelXp;
-            state.level++;
-            state.nextLevelXp = Math.floor(state.nextLevelXp * 1.2);
-            state.pendingLevelUps++;
-          }
+          addXp(orb.value);
         }
       }
       state.xpOrbs = state.xpOrbs.filter(o => !o.dead);
@@ -514,13 +522,7 @@
         }
         if (dist < ship.radius + relic.r + 8) {
           relic.dead = true;
-          state.xp += relic.value;
-          while (state.xp >= state.nextLevelXp) {
-            state.xp -= state.nextLevelXp;
-            state.level++;
-            state.nextLevelXp = Math.floor(state.nextLevelXp * 1.2);
-            state.pendingLevelUps++;
-          }
+          addXp(relic.value);
           state.shieldLevel++;
           addFloatingText('RELIC: SHIELD + XP', ship.x, ship.y - 70, ART.gold);
         }
@@ -655,15 +657,17 @@
         }
       }
       if (state.keys.ArrowUp || state.keys.w) {
+        const thrustPulse = 2 + Math.sin(performance.now() * 0.05) * 2;
         ctx.fillStyle = `hsla(${35 + Math.sin(performance.now() * 0.05) * 18},100%,65%,0.9)`;
-        ctx.fillRect(-6, 12, 3, 8 + Math.random() * 5);
-        ctx.fillRect(3, 12, 3, 8 + Math.random() * 5);
+        ctx.fillRect(-6, 12, 3, 10 + thrustPulse);
+        ctx.fillRect(3, 12, 3, 10 + thrustPulse);
       }
       if (state.keys.ArrowDown || state.keys.s) {
+        const reversePulse = 2 + Math.sin(performance.now() * 0.04) * 2;
         ctx.fillStyle = `hsla(${200 + Math.sin(performance.now() * 0.04) * 30},100%,75%,0.9)`;
-        ctx.fillRect(-3, -24 - Math.random() * 3, 3, 8);
-        ctx.fillRect(0, -26 - Math.random() * 5, 3, 10);
-        ctx.fillRect(3, -24 - Math.random() * 3, 3, 8);
+        ctx.fillRect(-3, -24 - reversePulse, 3, 8);
+        ctx.fillRect(0, -28 - reversePulse, 3, 10);
+        ctx.fillRect(3, -24 - reversePulse, 3, 8);
       }
 
       ctx.restore();
@@ -784,7 +788,7 @@
       ctx.font = '16px Arial';
       for (const text of state.floatingTexts) {
         const alpha = Math.max(0, text.life / text.max);
-        ctx.fillStyle = text.color.replace(')', `, ${alpha})`).startsWith('rgb') ? text.color : text.color;
+        ctx.fillStyle = text.color;
         ctx.globalAlpha = alpha;
         ctx.fillText(text.text, text.x - cam.x, text.y - cam.y);
       }
@@ -873,7 +877,7 @@
       if (state.combo > 1) ctx.fillText(`Combo: x${state.combo}`, 24, 184);
       ctx.fillStyle = ART.cyan;
       ctx.font = '12px Arial';
-      ctx.fillText(`Biome: ${['Ice Nebula', 'Violet Void', 'Emerald Cloud', 'Golden Storm'][biomeIndex()]}`, 24, state.combo > 1 ? 204 : 180);
+      ctx.fillText(`Biome: ${BIOME_NAMES[biomeIndex()]}`, 24, state.combo > 1 ? 204 : 180);
       drawRadar();
 
       if (state.upgradeMenu) {
