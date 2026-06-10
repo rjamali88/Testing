@@ -2,7 +2,7 @@
 
 A tiny browser game inspired by **Asteroids** with a demonic player ship, angelic celestial enemies, rainbow explosions, and a geometric heaven-themed animated background of gold, white, clouds, and color bands.
 
-Now includes an effectively infinite-feeling map with camera follow + local radar/minimap, telegraphed enemy spawns, off-screen threat indicators, auto-fire combat, elite Dread Seraph encounters, relic drops, six biomes, new cherub/reaper enemies, Halo Blade and Chain Smite weapons, Relic Magnet upgrades, stronger pickup magnetism, XP orb drops, level-ups, combo scoring, clearer upgrade choices, screen-shake polish, pulsing synth-style audio, a longer scrolling story intro with a pixel launch animation, and pixel-art-inspired sprites/biome animations.
+Now includes an effectively infinite-feeling map with camera follow + local radar/minimap, telegraphed enemy spawns, off-screen threat indicators, auto-fire combat, elite Dread Seraph encounters, relic drops, eight space-heaven biomes, cherub/reaper/oracle enemies, enemy projectiles, Halo Blade and Chain Smite weapons, Nova Pulse and Aegis Dash abilities, Relic Magnet upgrades, stronger pickup magnetism, XP orb drops, level-ups, combo scoring, clearer upgrade choices, screen-shake polish, pulsing synth-style audio, a longer scrolling story intro with a pixel launch animation, and pixel-art-inspired sprites/biome animations.
 
 ## Art Direction
 
@@ -11,6 +11,7 @@ The chosen next-phase style is **Neo-Icon Gothic Pixel Art**:
 - **Mood:** cyberpunk cathedral meets demon-pilot space opera.
 - **Shape language:** chunky pixel silhouettes, stained-glass geometry, gothic HUD frames, angelic sigils, and hard neon outlines.
 - **Palette:** bone white, gold, cyan, magenta, violet, and deep ink-black with biome-specific stained-glass gradients.
+- **Biomes:** Ice Nebula, Violet Void, Emerald Cloud, Golden Storm, Crimson Chapel, Solar Reef, Obsidian Choir, and Aurora Crypt each get distinct animated pixel motifs.
 - **Rendering rules:** keep gameplay objects readable first, use glow/shadow sparingly for hierarchy, and reserve bright gold/cyan/magenta for interactable or dangerous elements.
 
 ## Run
@@ -30,10 +31,12 @@ Then visit <http://localhost:8000>.
 - Reverse thrust / brake: Down arrow or `S`
 - Shoot: Space
 - Toggle auto-fire: `F`
+- Aegis Dash: `E` or `Shift` after choosing the dash upgrade
 - Start game from intro screen: `Enter`
 - Restart after game over: `R`
-- Choose level-up upgrades: `1` Shield, `2` Better Guns, `3` More Speed, `4` Halo Blades, `5` Chain Smite, `6` Relic Magnet
+- Choose level-up upgrades: `1` Shield, `2` Better Guns, `3` More Speed, `4` Halo Blades, `5` Chain Smite, `6` Relic Magnet, `7` Nova Pulse, `8` Aegis Dash
 
 ## Notes
 
 - On first start, browser audio may require user interaction before the synth pulse/melody begins.
+- This prototype is a single-file Canvas game, so most iteration happens in `index.html`.

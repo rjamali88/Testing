@@ -62,13 +62,15 @@
     const WORLD = { w: 1000000, h: 1000000 };
     const WORLD_HALF = WORLD.w / 2;
     const ZOOM = 0.62;
-    const BIOME_NAMES = ['Ice Nebula', 'Violet Void', 'Emerald Cloud', 'Golden Storm', 'Crimson Chapel', 'Solar Reef'];
-    const ENEMY_TYPES = ['seraph', 'warden', 'archon', 'cherub', 'reaper'];
+    const BIOME_NAMES = ['Ice Nebula', 'Violet Void', 'Emerald Cloud', 'Golden Storm', 'Crimson Chapel', 'Solar Reef', 'Obsidian Choir', 'Aurora Crypt'];
+    const ENEMY_TYPES = ['seraph', 'warden', 'archon', 'cherub', 'reaper', 'oracle'];
     const XP_GROWTH = 1.2;
     const MAX_PARTICLES = 360;
     const MAX_FLOATING_TEXTS = 48;
     const MAX_ENEMIES = 90;
     const MAX_PICKUPS = 140;
+    const MAX_BULLETS = 160;
+    const MAX_ENEMY_BULLETS = 90;
     const state = {
       keys: {},
       score: 0,
@@ -87,6 +89,12 @@
       bladeLevel: 0,
       chainLevel: 0,
       magnetLevel: 0,
+      novaLevel: 0,
+      dashLevel: 0,
+      novaTimer: 360,
+      novaFlash: 0,
+      dashCooldown: 0,
+      invuln: 0,
       chainTimer: 180,
       chainFlash: 0,
       spawnTimer: 90,
@@ -101,12 +109,14 @@
       shake: 0,
       combo: 0,
       comboTimer: 0,
+      paused: false,
       gameOver: false,
       won: false,
       flash: 0,
       cooldown: 0,
       particles: [],
       bullets: [],
+      enemyBullets: [],
       rocks: [],
       spawnWarnings: [],
       floatingTexts: [],
@@ -128,6 +138,11 @@
 
     function rand(min, max) { return Math.random() * (max - min) + min; }
     function pick(list) { return list[Math.floor(rand(0, list.length))]; }
+    function enemyHp(type, elite = false) {
+      if (elite) return 9 + Math.floor(state.level / 2);
+      if (type === 'oracle' || type === 'reaper') return 2;
+      return 1;
+    }
     function drawPixelDiamond(x, y, size, color) {
       ctx.fillStyle = color;
       ctx.fillRect(x, y - size, size, size);
@@ -177,6 +192,7 @@
 
     function spawnRocks(count) {
       for (let i = 0; i < count; i++) {
+        const type = pick(ENEMY_TYPES);
         const rock = {
           x: ship.x + rand(-900, 900),
           y: ship.y + rand(-900, 900),
@@ -185,8 +201,8 @@
           angle: rand(0, Math.PI * 2),
           spin: rand(-0.02, 0.02),
           r: rand(18, 44),
-          type: pick(ENEMY_TYPES),
-          hp: 1,
+          type,
+          hp: enemyHp(type),
           elite: false,
         };
         if (Math.hypot(rock.x - ship.x, rock.y - ship.y) < 120) i--; else state.rocks.push(rock);
@@ -199,14 +215,15 @@
       for (let i = 0; i < count; i++) {
         const angle = rand(0, Math.PI * 2);
         const distance = rand(720, 1150);
+        const type = pick(ENEMY_TYPES);
         state.spawnWarnings.push({
           x: ship.x + Math.cos(angle) * distance,
           y: ship.y + Math.sin(angle) * distance,
           timer: 70 + rand(0, 30),
           r: rand(18, 44),
-          type: pick(ENEMY_TYPES),
+          type,
           elite: false,
-          hp: 1,
+          hp: enemyHp(type),
         });
       }
     }
@@ -229,12 +246,19 @@
       state.bladeLevel = 0;
       state.chainLevel = 0;
       state.magnetLevel = 0;
+      state.novaLevel = 0;
+      state.dashLevel = 0;
+      state.novaTimer = 360;
+      state.novaFlash = 0;
+      state.dashCooldown = 0;
+      state.invuln = 0;
       state.chainTimer = 180;
       state.chainFlash = 0;
       state.spawnTimer = 90;
       state.eliteTimer = 900;
       state.runTime = 0;
       state.autoFire = true;
+      state.paused = false;
       state.gameOver = false;
       state.won = false;
       state.flash = 0;
@@ -245,6 +269,7 @@
       state.deathQuote = '';
       state.cooldown = 0;
       state.bullets = [];
+      state.enemyBullets = [];
       state.particles = [];
       state.rocks = [];
       state.spawnWarnings = [];
@@ -324,10 +349,56 @@
           life: 70 + state.gunLevel * 12,
         });
       }
+      if (state.bullets.length > MAX_BULLETS) state.bullets.splice(0, state.bullets.length - MAX_BULLETS);
       state.cooldown = Math.max(5, 10 - state.gunLevel * 2);
     }
 
+    function dash() {
+      if (state.dashLevel <= 0 || state.dashCooldown > 0 || state.gameOver || state.upgradeMenu || !state.started) return;
+      const force = 6 + state.dashLevel * 1.35;
+      ship.vx += Math.cos(ship.angle) * force;
+      ship.vy += Math.sin(ship.angle) * force;
+      state.invuln = Math.max(state.invuln, 24 + state.dashLevel * 8);
+      state.dashCooldown = Math.max(55, 180 - state.dashLevel * 22);
+      state.shake = Math.max(state.shake, 5);
+      for (let i = 0; i < 28; i++) {
+        const a = ship.angle + Math.PI + rand(-0.8, 0.8);
+        const speed = rand(1.2, 4.2);
+        state.particles.push({ x: ship.x, y: ship.y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, life: rand(14, 28), max: 28, hue: rand(185, 320), size: rand(1.5, 4) });
+      }
+      if (state.particles.length > MAX_PARTICLES) state.particles.splice(0, state.particles.length - MAX_PARTICLES);
+    }
+
     function hit(a, b, r) { return Math.hypot(a.x - b.x, a.y - b.y) < r; }
+
+    function damagePlayer() {
+      if (state.invuln > 0 || state.flash > 0) return false;
+      if (state.shieldLevel > 0) {
+        state.shieldLevel--;
+        state.flash = 20;
+        state.invuln = 35;
+        state.shake = Math.max(state.shake, 10);
+        return 'shield';
+      }
+      state.lives--;
+      state.flash = 60;
+      state.invuln = 90;
+      state.shake = 18;
+      state.combo = 0;
+      state.comboTimer = 0;
+      explode(ship.x, ship.y, 40);
+      ship.x -= Math.cos(ship.angle) * 120;
+      ship.y -= Math.sin(ship.angle) * 120;
+      ship.vx = 0;
+      ship.vy = 0;
+      state.deathOverlay = 120;
+      state.deathQuote = pick(proverbs);
+      if (state.lives <= 0) {
+        state.gameOver = true;
+        state.won = false;
+      }
+      return true;
+    }
 
     function nearestEnemy(maxDistance = 900) {
       let best = null;
@@ -383,11 +454,14 @@
       if (state.deathOverlay > 0) { state.deathOverlay -= state.dt; return; }
       if (state.upgradeMenu) return;
       if (state.cooldown > 0) state.cooldown--;
+      if (state.dashCooldown > 0) state.dashCooldown -= state.dt;
+      if (state.invuln > 0) state.invuln -= state.dt;
       if (state.flash > 0) state.flash--;
       if (state.shake > 0) state.shake *= 0.88;
       if (state.shake < 0.1) state.shake = 0;
       if (state.comboTimer > 0) state.comboTimer -= state.dt; else state.combo = 0;
       if (state.chainFlash > 0) state.chainFlash -= state.dt;
+      if (state.novaFlash > 0) state.novaFlash -= state.dt;
       state.runTime += state.dt / 60;
       state.eliteTimer -= state.dt;
       if (state.eliteTimer <= 0) {
@@ -428,6 +502,30 @@
               damageEnemy(r, 1, ART.gold);
             }
           }
+        }
+      }
+      if (state.novaLevel > 0) {
+        state.novaTimer -= state.dt;
+        if (state.novaTimer <= 0) {
+          const radius = 145 + state.novaLevel * 48;
+          const damage = 1 + Math.floor(state.novaLevel / 3);
+          let hits = 0;
+          for (const r of state.rocks) {
+            if (Math.hypot(r.x - ship.x, r.y - ship.y) < radius + r.r) {
+              damageEnemy(r, damage, ART.magenta);
+              hits++;
+            }
+          }
+          for (let i = 0; i < 46 + state.novaLevel * 8; i++) {
+            const a = rand(0, Math.PI * 2);
+            const speed = rand(1.8, 6.2);
+            state.particles.push({ x: ship.x, y: ship.y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, life: rand(18, 42), max: 42, hue: rand(285, 360), size: rand(2, 5.2) });
+          }
+          if (hits > 0) addFloatingText(`NOVA x${hits}`, ship.x, ship.y - 86, ART.magenta);
+          state.novaFlash = 24;
+          state.shake = Math.max(state.shake, 7 + state.novaLevel);
+          state.novaTimer = Math.max(90, 300 - state.novaLevel * 28);
+          if (state.particles.length > MAX_PARTICLES) state.particles.splice(0, state.particles.length - MAX_PARTICLES);
         }
       }
       state.spawnTimer -= state.dt;
@@ -491,6 +589,18 @@
       }
       state.bullets = state.bullets.filter(b => b.life > 0);
 
+      for (const b of state.enemyBullets) {
+        b.x += b.vx * state.dt;
+        b.y += b.vy * state.dt;
+        b.life -= state.dt;
+        if (Math.hypot(b.x - ship.x, b.y - ship.y) > 2200) b.dead = true;
+        if (hit(b, ship, ship.radius + 5)) {
+          b.dead = true;
+          damagePlayer();
+        }
+      }
+      state.enemyBullets = state.enemyBullets.filter(b => !b.dead && b.life > 0);
+
       for (const r of state.rocks) {
         if (r.bladeHit > 0) r.bladeHit -= state.dt;
         else r.bladeHit = 0;
@@ -512,6 +622,17 @@
         } else if (r.type === 'reaper') {
           r.vx += (-dx / dist) * 0.006 * state.dt;
           r.vy += (-dy / dist) * 0.006 * state.dt;
+        } else if (r.type === 'oracle') {
+          const desired = 520;
+          const force = (dist - desired) * 0.00007;
+          r.vx += (dx / dist) * force * state.dt;
+          r.vy += (dy / dist) * force * state.dt;
+          r.shotTimer = (r.shotTimer || rand(80, 160)) - state.dt;
+          if (r.shotTimer <= 0 && state.enemyBullets.length < MAX_ENEMY_BULLETS) {
+            const a = Math.atan2(ship.y - r.y, ship.x - r.x);
+            state.enemyBullets.push({ x: r.x, y: r.y, vx: Math.cos(a) * 3.2, vy: Math.sin(a) * 3.2, life: 240 });
+            r.shotTimer = rand(130, 210);
+          }
         }
         const speed = Math.hypot(r.vx, r.vy);
         if (speed > 2.8) { r.vx = (r.vx / speed) * 2.8; r.vy = (r.vy / speed) * 2.8; }
@@ -542,31 +663,13 @@
       state.rocks = state.rocks.filter(r => !r.dead);
 
       for (const r of state.rocks) {
-        if (hit(ship, r, ship.radius + r.r * 0.75) && state.flash === 0) {
-          if (state.shieldLevel > 0) {
-            state.shieldLevel--;
-            state.flash = 20;
+        if (hit(ship, r, ship.radius + r.r * 0.75)) {
+          const result = damagePlayer();
+          if (result === 'shield') {
             r.dead = true;
             explode(r.x, r.y, 18);
-            continue;
           }
-          state.lives--;
-          state.flash = 60;
-          state.shake = 18;
-          state.combo = 0;
-          state.comboTimer = 0;
-          explode(ship.x, ship.y, 40);
-          ship.x -= Math.cos(ship.angle) * 120;
-          ship.y -= Math.sin(ship.angle) * 120;
-          ship.vx = 0;
-          ship.vy = 0;
-          state.deathOverlay = 120;
-          state.deathQuote = pick(proverbs);
-          if (state.lives <= 0) {
-            state.gameOver = true;
-            state.won = false;
-          }
-          break;
+          if (result) break;
         }
       }
       state.rocks = state.rocks.filter(r => !r.dead);
@@ -624,6 +727,8 @@
         ['#2a1f14', '#8a5b2b', '#ffd089'], // golden storm
         ['#310914', '#8a1d3b', '#ff7898'], // crimson chapel
         ['#102831', '#2c7c87', '#d5fff6'], // solar reef
+        ['#05050a', '#232033', '#9f92ff'], // obsidian choir
+        ['#061d2b', '#17626f', '#c8fff1'], // aurora crypt
       ];
       const palette = biomes[biomeX];
       ctx.fillStyle = ART.ink;
@@ -702,9 +807,18 @@
         } else if (biomeX === 4) { // crimson chapel crosses
           ctx.fillStyle = '#ff7898';
           ctx.fillRect(x, y - 4, 2, 10); ctx.fillRect(x - 4, y, 10, 2);
-        } else { // solar reef coral
+        } else if (biomeX === 5) { // solar reef coral
           ctx.fillStyle = '#d5fff6';
           ctx.fillRect(x, y, 2, 8); ctx.fillRect(x + 3, y + 2, 2, 5); ctx.fillRect(x - 3, y + 4, 2, 4);
+        } else if (biomeX === 6) { // obsidian choir monoliths
+          ctx.fillStyle = i % 2 ? '#9f92ff' : '#fff5cf';
+          ctx.fillRect(x - 3, y - 9, 6, 18); ctx.fillRect(x - 7, y + 5, 14, 3);
+          ctx.fillStyle = 'rgba(5,5,10,0.7)';
+          ctx.fillRect(x - 1, y - 5, 2, 7);
+        } else { // aurora crypt animated curtains
+          ctx.fillStyle = i % 2 ? '#8ef3ff' : '#ffd86b';
+          ctx.fillRect(x, y - 8, 2, 16); ctx.fillRect(x + 4, y - 4 + (t % 4), 2, 10);
+          ctx.fillRect(x - 4, y + 2 - (t % 4), 2, 8);
         }
       }
     }
@@ -757,6 +871,13 @@
       }
 
       ctx.restore();
+      if (state.invuln > 0 && state.dashLevel > 0) {
+        ctx.strokeStyle = `rgba(255, 216, 107, ${Math.min(0.75, state.invuln / 42)})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(ship.x - cam.x, ship.y - cam.y, ship.radius + 15 + Math.sin(performance.now() * 0.04) * 4, 0, Math.PI * 2);
+        ctx.stroke();
+      }
       if (state.shieldLevel > 0) {
         ctx.strokeStyle = `hsla(${190 + performance.now() * 0.05},100%,80%,0.8)`;
         ctx.lineWidth = 2.2;
@@ -813,6 +934,13 @@
         ctx.moveTo(-r.r * 0.25, r.r);
         ctx.lineTo(r.r * 0.25, -r.r);
         ctx.stroke();
+      } else if (r.type === 'oracle') {
+        ctx.strokeStyle = 'hsla(260,100%,82%,0.86)';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.arc(0, bob, r.r * 0.65, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeRect(-r.r * 0.35, -r.r * 0.35 + bob, r.r * 0.7, r.r * 0.7);
       } else {
         ctx.strokeStyle = 'hsla(300,100%,80%,0.75)';
         ctx.lineWidth = 1.5;
@@ -849,6 +977,18 @@
         ctx.shadowBlur = 0;
       }
     }
+
+    function drawEnemyBullets(cam) {
+      for (const b of state.enemyBullets) {
+        const x = b.x - cam.x;
+        const y = b.y - cam.y;
+        ctx.shadowColor = ART.magenta;
+        ctx.shadowBlur = 8;
+        drawPixelDiamond(x, y, 3, ART.magenta);
+        ctx.shadowBlur = 0;
+      }
+    }
+
     function drawOrbs(cam) {
       for (const o of state.xpOrbs) {
         const pulse = 1 + Math.sin(performance.now() * 0.01 + o.x) * 0.25;
@@ -973,8 +1113,8 @@
       ctx.fillText(`Level: ${state.level}`, 24, 88);
       ctx.fillText(`XP: ${state.xp}/${state.nextLevelXp}`, 24, 112);
       ctx.fillText(`Core S/G/Spd: ${state.shieldLevel}/${state.gunLevel}/${state.speedLevel}`, 24, 136);
-      ctx.fillText(`Powers B/C/M: ${state.bladeLevel}/${state.chainLevel}/${state.magnetLevel}`, 24, 160);
-      ctx.fillText(`Time: ${Math.floor(state.runTime)}s Auto: ${state.autoFire ? 'ON' : 'OFF'}`, 24, 184);
+      ctx.fillText(`Powers B/C/M/N/D: ${state.bladeLevel}/${state.chainLevel}/${state.magnetLevel}/${state.novaLevel}/${state.dashLevel}`, 24, 160);
+      ctx.fillText(`Time: ${Math.floor(state.runTime)}s Auto: ${state.autoFire ? 'ON' : 'OFF'} Dash:${Math.max(0, Math.ceil(state.dashCooldown / 60))}`, 24, 184);
       if (state.combo > 1) ctx.fillText(`Combo: x${state.combo}`, 24, 208);
       ctx.fillStyle = ART.cyan;
       ctx.font = '12px Arial';
@@ -995,8 +1135,10 @@
         ctx.fillText(`4) Halo Blades (orbit, now ${state.bladeLevel}/5)`, canvas.width / 2, canvas.height / 2 + 70);
         ctx.fillText(`5) Chain Smite (auto lightning, now ${state.chainLevel}/5)`, canvas.width / 2, canvas.height / 2 + 104);
         ctx.fillText(`6) Relic Magnet (pickup pull, now ${state.magnetLevel}/5)`, canvas.width / 2, canvas.height / 2 + 138);
+        ctx.fillText(`7) Nova Pulse (radial blast, now ${state.novaLevel}/5)`, canvas.width / 2, canvas.height / 2 + 172);
+        ctx.fillText(`8) Aegis Dash (Shift/E burst, now ${state.dashLevel}/5)`, canvas.width / 2, canvas.height / 2 + 206);
         ctx.font = '16px Arial';
-        ctx.fillText('Tip: survivor builds stack weapons, passives, and relic drops.', canvas.width / 2, canvas.height / 2 + 176);
+        ctx.fillText('Tip: survivor builds stack weapons, passives, and relic drops.', canvas.width / 2, canvas.height / 2 + 242);
         ctx.textAlign = 'left';
       } else if (!state.started) {
         ctx.fillStyle = 'rgba(2, 2, 10, 0.97)';
@@ -1093,6 +1235,20 @@
           }
         }
       }
+      if (state.novaLevel > 0 && state.novaFlash > 0) {
+        const alpha = state.novaFlash / 24;
+        const radius = (145 + state.novaLevel * 48) * (1.08 - alpha * 0.35);
+        ctx.strokeStyle = `rgba(255, 92, 134, ${alpha * 0.75})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(ship.x - cam.x, ship.y - cam.y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = `rgba(255, 216, 107, ${alpha * 0.45})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(ship.x - cam.x, ship.y - cam.y, radius * 0.72, 0, Math.PI * 2);
+        ctx.stroke();
+      }
     }
 
     function drawPostProcess() {
@@ -1134,6 +1290,7 @@
       drawParticles(cam);
       drawFloatingTexts(cam);
       drawBullets(cam);
+      drawEnemyBullets(cam);
       drawOrbs(cam);
       drawRelics(cam);
       drawAbilities(cam);
@@ -1148,15 +1305,18 @@
       state.keys[key] = true;
       if (e.key === ' ') { e.preventDefault(); shoot(); }
       if (key === 'f') state.autoFire = !state.autoFire;
+      if (key === 'e' || e.key === 'Shift') dash();
       if ((e.key === 'r' || e.key === 'R') && state.gameOver) resetGame();
       if (e.key === 'Enter' && !state.started) { state.started = true; startAudio(); }
-      if (state.upgradeMenu && ['1', '2', '3', '4', '5', '6'].includes(key)) {
+      if (state.upgradeMenu && ['1', '2', '3', '4', '5', '6', '7', '8'].includes(key)) {
         if (key === '1') state.shieldLevel++;
         if (key === '2') state.gunLevel = Math.min(3, state.gunLevel + 1);
         if (key === '3') state.speedLevel = Math.min(5, state.speedLevel + 1);
         if (key === '4') state.bladeLevel = Math.min(5, state.bladeLevel + 1);
         if (key === '5') state.chainLevel = Math.min(5, state.chainLevel + 1);
         if (key === '6') state.magnetLevel = Math.min(5, state.magnetLevel + 1);
+        if (key === '7') state.novaLevel = Math.min(5, state.novaLevel + 1);
+        if (key === '8') state.dashLevel = Math.min(5, state.dashLevel + 1);
         state.pendingLevelUps--;
         if (state.pendingLevelUps <= 0) state.upgradeMenu = false;
       }
