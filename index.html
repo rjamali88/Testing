@@ -14,17 +14,26 @@
       min-height: 100vh;
       display: grid;
       place-items: center;
-      background: #f6fbff;
+      background:
+        radial-gradient(circle at 50% 12%, rgba(255, 216, 107, 0.16), transparent 28%),
+        radial-gradient(circle at 20% 90%, rgba(255, 92, 134, 0.18), transparent 32%),
+        #050612;
       font-family: 'Orbitron', Arial, sans-serif;
       color: #f7f8ff;
     }
     .wrap { text-align: center; }
-    canvas {
-      border: 2px solid #fff5d6;
-      box-shadow: 0 0 24px rgba(255, 215, 120, 0.4);
-      background: #0d1026;
+    h1 {
+      letter-spacing: 0.18em;
+      margin-bottom: 12px;
+      text-shadow: 0 0 10px #8ef3ff, 0 0 22px rgba(255, 92, 134, 0.75);
     }
-    .help { margin-top: 10px; color: #ecf0ff; font-size: 0.95rem; }
+    canvas {
+      border: 3px double #fff5d6;
+      box-shadow: 0 0 0 3px rgba(142, 243, 255, 0.16), 0 0 34px rgba(255, 215, 120, 0.48), inset 0 0 40px rgba(255, 92, 134, 0.16);
+      background: #0d1026;
+      image-rendering: pixelated;
+    }
+    .help { margin-top: 10px; color: #ecf0ff; font-size: 0.95rem; text-shadow: 0 0 8px rgba(142, 243, 255, 0.7); }
   </style>
 </head>
 <body>
@@ -37,6 +46,18 @@
   <script>
     const canvas = document.getElementById('game');
     const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+
+    const ART = {
+      style: 'Neo-Icon Gothic Pixel Art',
+      ink: '#050612',
+      panel: 'rgba(5, 8, 20, 0.78)',
+      gold: '#ffd86b',
+      bone: '#fff5cf',
+      cyan: '#8ef3ff',
+      magenta: '#ff5c86',
+      violet: '#8d63ff',
+    };
 
     const WORLD = { w: 1000000, h: 1000000 };
     const ZOOM = 0.62;
@@ -89,6 +110,31 @@
     ];
 
     function rand(min, max) { return Math.random() * (max - min) + min; }
+    function drawPixelDiamond(x, y, size, color) {
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y - size, size, size);
+      ctx.fillRect(x - size, y, size * 3, size);
+      ctx.fillRect(x, y + size, size, size);
+    }
+    function drawGothicPanel(x, y, w, h, label = '') {
+      ctx.fillStyle = ART.panel;
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = ART.gold;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+      ctx.strokeStyle = 'rgba(142, 243, 255, 0.55)';
+      ctx.strokeRect(x + 4.5, y + 4.5, w - 8, h - 8);
+      ctx.fillStyle = ART.gold;
+      ctx.fillRect(x + 6, y + 6, 10, 2); ctx.fillRect(x + 6, y + 6, 2, 10);
+      ctx.fillRect(x + w - 16, y + 6, 10, 2); ctx.fillRect(x + w - 8, y + 6, 2, 10);
+      ctx.fillRect(x + 6, y + h - 8, 10, 2); ctx.fillRect(x + 6, y + h - 16, 2, 10);
+      ctx.fillRect(x + w - 16, y + h - 8, 10, 2); ctx.fillRect(x + w - 8, y + h - 16, 2, 10);
+      if (label) {
+        ctx.fillStyle = ART.cyan;
+        ctx.font = '10px Arial';
+        ctx.fillText(label, x + 12, y + 18);
+      }
+    }
     function biomeIndex() { return ((Math.floor(ship.x / 1200) % 4) + 4) % 4; }
     function camera() {
       return {
@@ -418,12 +464,29 @@
         ['#2a1f14', '#8a5b2b', '#ffd089'], // golden storm
       ];
       const palette = biomes[(biomeX + 4) % 4];
+      ctx.fillStyle = ART.ink;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
       const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
       g.addColorStop(0, palette[0]);
       g.addColorStop(0.45, palette[1]);
       g.addColorStop(1, palette[2]);
       ctx.fillStyle = g;
       ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Stained-glass leading: big readable art-style shapes behind gameplay.
+      ctx.strokeStyle = 'rgba(255, 245, 207, 0.16)';
+      ctx.lineWidth = 2;
+      for (let i = -2; i < 9; i++) {
+        const x = i * 120 - ((cam.x * 0.08) % 120);
+        ctx.beginPath();
+        ctx.moveTo(x, 0);
+        ctx.lineTo(x + 180, canvas.height);
+        ctx.stroke();
+      }
+      for (let i = 0; i < 5; i++) {
+        ctx.strokeStyle = `hsla(${(biomeX * 70 + i * 32 + performance.now() * 0.01) % 360}, 100%, 78%, 0.14)`;
+        ctx.strokeRect(80 + i * 115 - ((cam.x * 0.035) % 120), 60 + i * 36 - ((cam.y * 0.035) % 80), 160, 96);
+      }
 
       for (let i = 0; i < 12; i++) {
         ctx.strokeStyle = `hsla(${(i * 45 + performance.now() * 0.02) % 360},100%,80%,0.18)`;
@@ -484,9 +547,12 @@
       ctx.rotate(ship.angle + Math.PI / 2);
 
       const hitBlink = state.flash > 0 && Math.floor(state.flash / 4) % 2 === 0;
-      ctx.fillStyle = hitBlink ? '#ffd4d4' : '#be1c27';
-      ctx.strokeStyle = '#ffd56a';
-      ctx.lineWidth = 2;
+      ctx.shadowColor = hitBlink ? ART.bone : ART.magenta;
+      ctx.shadowBlur = hitBlink ? 18 : 10;
+      ctx.strokeStyle = ART.gold;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(-18, -18, 36, 36);
+      ctx.shadowBlur = 0;
 
       const sprite = [
         '....XX....',
@@ -507,6 +573,11 @@
           else ctx.fillStyle = '#ffd56a';
           ctx.fillRect((x - 5) * px, (y - 4) * px, px, px);
         }
+      }
+      if (state.keys.ArrowUp || state.keys.w) {
+        ctx.fillStyle = `hsla(${35 + Math.sin(performance.now() * 0.05) * 18},100%,65%,0.9)`;
+        ctx.fillRect(-6, 12, 3, 8 + Math.random() * 5);
+        ctx.fillRect(3, 12, 3, 8 + Math.random() * 5);
       }
       if (state.keys.ArrowDown || state.keys.s) {
         ctx.fillStyle = `hsla(${200 + Math.sin(performance.now() * 0.04) * 30},100%,75%,0.9)`;
@@ -531,6 +602,8 @@
       ctx.rotate(r.angle);
 
       const bob = Math.sin(performance.now() * 0.004 + r.x * 0.01) * 2;
+      ctx.shadowColor = r.type === 'archon' ? ART.violet : r.type === 'warden' ? ART.cyan : ART.gold;
+      ctx.shadowBlur = 12;
       if (r.type === 'seraph') {
         ctx.strokeStyle = 'hsla(48,100%,80%,0.8)';
         ctx.lineWidth = 1.4;
@@ -564,23 +637,29 @@
       ctx.fillRect(-3, -3 + bob, 6, 6);
       ctx.fillStyle = '#2b2442';
       ctx.fillRect(-1, -1 + bob, 2, 2);
+      ctx.shadowBlur = 0;
       ctx.restore();
     }
 
     function drawBullets(cam) {
       for (const b of state.bullets) {
-        ctx.fillStyle = '#fff6c8';
-        ctx.beginPath();
-        ctx.arc(b.x - cam.x, b.y - cam.y, 2.2, 0, Math.PI * 2);
-        ctx.fill();
+        const x = b.x - cam.x;
+        const y = b.y - cam.y;
+        ctx.shadowColor = ART.gold;
+        ctx.shadowBlur = 8;
+        drawPixelDiamond(x, y, 2, ART.bone);
+        ctx.shadowBlur = 0;
       }
     }
     function drawOrbs(cam) {
       for (const o of state.xpOrbs) {
-        ctx.fillStyle = `hsla(${o.hue},100%,70%,0.95)`;
-        ctx.beginPath();
-        ctx.arc(o.x - cam.x, o.y - cam.y, o.r, 0, Math.PI * 2);
-        ctx.fill();
+        const pulse = 1 + Math.sin(performance.now() * 0.01 + o.x) * 0.25;
+        const x = o.x - cam.x;
+        const y = o.y - cam.y;
+        ctx.shadowColor = `hsl(${o.hue},100%,70%)`;
+        ctx.shadowBlur = 10;
+        drawPixelDiamond(x, y, Math.max(2, o.r * 0.45 * pulse), `hsla(${o.hue},100%,70%,0.95)`);
+        ctx.shadowBlur = 0;
       }
     }
 
@@ -643,10 +722,7 @@
     function drawRadar() {
       const mapW = 150, mapH = 110, mapX = canvas.width - mapW - 14, mapY = 14;
       const range = 1400;
-      ctx.fillStyle = 'rgba(5,8,20,0.78)';
-      ctx.fillRect(mapX, mapY, mapW, mapH);
-      ctx.strokeStyle = '#9de7ff';
-      ctx.strokeRect(mapX, mapY, mapW, mapH);
+      drawGothicPanel(mapX, mapY, mapW, mapH, 'RADAR');
       ctx.strokeStyle = 'rgba(157,231,255,0.25)';
       ctx.beginPath();
       ctx.moveTo(mapX + mapW / 2, mapY);
@@ -670,21 +746,23 @@
       for (const r of state.rocks) plot(r, '#ff5c86', 4);
       ctx.fillStyle = '#ffffff';
       ctx.fillRect(mapX + mapW / 2 - 2, mapY + mapH / 2 - 2, 4, 4);
-      ctx.fillStyle = '#9de7ff';
+      ctx.fillStyle = ART.cyan;
       ctx.font = '10px Arial';
-      ctx.fillText('RADAR', mapX + 6, mapY + 14);
     }
 
     function drawHud() {
-      ctx.fillStyle = '#fff5cf';
-      ctx.font = '18px Arial';
-      ctx.fillText(`Score: ${state.score}`, 14, 24);
-      ctx.fillText(`Lives: ${state.lives}`, 14, 48);
-      ctx.fillText(`Level: ${state.level}`, 14, 72);
-      ctx.fillText(`XP: ${state.xp}/${state.nextLevelXp}`, 14, 96);
-      ctx.fillText(`Upgrades S/G/Spd: ${state.shieldLevel}/${state.gunLevel}/${state.speedLevel}`, 14, 120);
-      if (state.combo > 1) ctx.fillText(`Combo: x${state.combo}`, 14, 144);
-      ctx.fillText(`Biome: ${['Ice Nebula', 'Violet Void', 'Emerald Cloud', 'Golden Storm'][biomeIndex()]}`, 14, state.combo > 1 ? 168 : 144);
+      drawGothicPanel(10, 10, 280, state.combo > 1 ? 176 : 152, 'NEO-ICON GOTHIC HUD');
+      ctx.fillStyle = ART.bone;
+      ctx.font = '16px Arial';
+      ctx.fillText(`Score: ${state.score}`, 24, 40);
+      ctx.fillText(`Lives: ${state.lives}`, 24, 64);
+      ctx.fillText(`Level: ${state.level}`, 24, 88);
+      ctx.fillText(`XP: ${state.xp}/${state.nextLevelXp}`, 24, 112);
+      ctx.fillText(`Upgrades S/G/Spd: ${state.shieldLevel}/${state.gunLevel}/${state.speedLevel}`, 24, 136);
+      if (state.combo > 1) ctx.fillText(`Combo: x${state.combo}`, 24, 160);
+      ctx.fillStyle = ART.cyan;
+      ctx.font = '12px Arial';
+      ctx.fillText(`Biome: ${['Ice Nebula', 'Violet Void', 'Emerald Cloud', 'Golden Storm'][biomeIndex()]}`, 24, state.combo > 1 ? 180 : 156);
       drawRadar();
 
       if (state.upgradeMenu) {
@@ -707,7 +785,10 @@
         ctx.fillStyle = '#8ef3ff';
         ctx.textAlign = 'center';
         ctx.font = '38px Arial';
-        ctx.fillText('HEAVENFALL PROTOCOL', canvas.width / 2, 120);
+        ctx.fillText('HEAVENFALL PROTOCOL', canvas.width / 2, 112);
+        ctx.font = '14px Arial';
+        ctx.fillStyle = ART.magenta;
+        ctx.fillText(`ART STYLE: ${ART.style.toUpperCase()}`, canvas.width / 2, 140);
         ctx.fillStyle = '#ffecc2';
         ctx.font = '20px Arial';
         state.introScroll += 0.25;
@@ -766,6 +847,29 @@
       }
     }
 
+
+
+    function drawPostProcess() {
+      const vignette = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, canvas.width * 0.15, canvas.width / 2, canvas.height / 2, canvas.width * 0.72);
+      vignette.addColorStop(0, 'rgba(0,0,0,0)');
+      vignette.addColorStop(1, 'rgba(0,0,0,0.46)');
+      ctx.fillStyle = vignette;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = 'rgba(255, 245, 207, 0.035)';
+      for (let y = 0; y < canvas.height; y += 4) ctx.fillRect(0, y, canvas.width, 1);
+
+      ctx.strokeStyle = 'rgba(255, 216, 107, 0.5)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(8, 8, canvas.width - 16, canvas.height - 16);
+      ctx.strokeStyle = 'rgba(142, 243, 255, 0.24)';
+      ctx.strokeRect(14, 14, canvas.width - 28, canvas.height - 28);
+
+      ctx.fillStyle = 'rgba(255, 92, 134, 0.7)';
+      ctx.font = '10px Arial';
+      ctx.fillText(ART.style.toUpperCase(), canvas.width - 214, canvas.height - 16);
+    }
+
     let last = performance.now();
     function loop(now = performance.now()) {
       const delta = Math.min(2, (now - last) / 16.6667);
@@ -786,6 +890,7 @@
       drawBullets(cam);
       drawOrbs(cam);
       drawShip(cam);
+      drawPostProcess();
       drawHud();
       requestAnimationFrame(loop);
     }

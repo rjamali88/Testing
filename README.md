@@ -4,6 +4,15 @@ A tiny browser game inspired by **Asteroids** with a demonic player ship, angeli
 
 Now includes an effectively infinite-feeling map with camera follow + local radar/minimap, telegraphed enemy spawns, off-screen threat indicators, stronger pickup magnetism, XP orb drops, level-ups, combo scoring, clearer upgrade choices, screen-shake polish, pulsing synth-style audio, a longer scrolling story intro with a pixel launch animation, and pixel-art-inspired sprites/biome animations.
 
+## Art Direction
+
+The chosen next-phase style is **Neo-Icon Gothic Pixel Art**:
+
+- **Mood:** cyberpunk cathedral meets demon-pilot space opera.
+- **Shape language:** chunky pixel silhouettes, stained-glass geometry, gothic HUD frames, angelic sigils, and hard neon outlines.
+- **Palette:** bone white, gold, cyan, magenta, violet, and deep ink-black with biome-specific stained-glass gradients.
+- **Rendering rules:** keep gameplay objects readable first, use glow/shadow sparingly for hierarchy, and reserve bright gold/cyan/magenta for interactable or dangerous elements.
+
 ## Run
 
 Open `index.html` directly in your browser, or run a local server:
