@@ -1,0 +1,1421 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Heavenfall Asteroids</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700;900&display=swap" rel="stylesheet">
+  <style>
+    :root { color-scheme: dark; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      display: grid;
+      place-items: center;
+      background:
+        radial-gradient(circle at 50% 12%, rgba(255, 216, 107, 0.16), transparent 28%),
+        radial-gradient(circle at 20% 90%, rgba(255, 92, 134, 0.18), transparent 32%),
+        #050612;
+      font-family: 'Orbitron', Arial, sans-serif;
+      color: #f7f8ff;
+    }
+    .wrap { text-align: center; }
+    h1 {
+      letter-spacing: 0.18em;
+      margin-bottom: 12px;
+      text-shadow: 0 0 10px #8ef3ff, 0 0 22px rgba(255, 92, 134, 0.75);
+    }
+    canvas {
+      border: 3px double #fff5d6;
+      box-shadow: 0 0 0 3px rgba(142, 243, 255, 0.16), 0 0 34px rgba(255, 215, 120, 0.48), inset 0 0 40px rgba(255, 92, 134, 0.16);
+      background: #0d1026;
+      image-rendering: pixelated;
+    }
+    .help { margin-top: 10px; color: #ecf0ff; font-size: 0.95rem; text-shadow: 0 0 8px rgba(142, 243, 255, 0.7); }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Heavenfall Asteroids</h1>
+    <canvas id="game" width="760" height="520"></canvas>
+    <div class="help">Rotate: ← → / A D &nbsp;|&nbsp; Thrust: ↑ / W &nbsp;|&nbsp; Reverse: ↓ / S &nbsp;|&nbsp; Fire: Space</div>
+  </div>
+
+  <script>
+    const canvas = document.getElementById('game');
+    const ctx = canvas.getContext('2d');
+    ctx.imageSmoothingEnabled = false;
+
+    const ART = {
+      style: 'Neo-Icon Gothic Pixel Art',
+      ink: '#050612',
+      panel: 'rgba(5, 8, 20, 0.78)',
+      gold: '#ffd86b',
+      bone: '#fff5cf',
+      cyan: '#8ef3ff',
+      magenta: '#ff5c86',
+      violet: '#8d63ff',
+    };
+
+    const WORLD = { w: 1000000, h: 1000000 };
+    const WORLD_HALF = WORLD.w / 2;
+    const ZOOM = 0.62;
+    const BIOME_WIDTH = 2600;
+    const SHIP_BASE_THRUST = 0.115;
+    const SHIP_SPEED_UPGRADE = 0.028;
+    const SHIP_MAX_SPEED = 5.2;
+    const BIOME_NAMES = ['Ice Nebula', 'Violet Void', 'Emerald Cloud', 'Golden Storm', 'Crimson Chapel', 'Solar Reef', 'Obsidian Choir', 'Aurora Crypt'];
+    const ENEMY_TYPES = ['seraph', 'warden', 'archon', 'cherub', 'reaper', 'oracle'];
+    const XP_GROWTH = 1.2;
+    const MAX_PARTICLES = 360;
+    const MAX_FLOATING_TEXTS = 48;
+    const MAX_ENEMIES = 90;
+    const MAX_PICKUPS = 140;
+    const MAX_BULLETS = 160;
+    const MAX_ENEMY_BULLETS = 90;
+    const state = {
+      keys: {},
+      score: 0,
+      lives: 3,
+      wave: 1,
+      xp: 0,
+      level: 1,
+      nextLevelXp: 60,
+      pendingLevelUps: 0,
+      upgradeMenu: false,
+      started: false,
+      launchAnim: 220,
+      shieldLevel: 0,
+      gunLevel: 0,
+      speedLevel: 0,
+      bladeLevel: 0,
+      chainLevel: 0,
+      magnetLevel: 0,
+      novaLevel: 0,
+      dashLevel: 0,
+      novaTimer: 360,
+      novaFlash: 0,
+      dashCooldown: 0,
+      invuln: 0,
+      chainTimer: 180,
+      chainFlash: 0,
+      spawnTimer: 90,
+      eliteTimer: 900,
+      runTime: 0,
+      autoFire: true,
+      deathOverlay: 0,
+      deathQuote: '',
+      introScroll: 0,
+      introPhase: 0,
+      beat: 0,
+      shake: 0,
+      combo: 0,
+      comboTimer: 0,
+      paused: false,
+      gameOver: false,
+      won: false,
+      flash: 0,
+      cooldown: 0,
+      particles: [],
+      bullets: [],
+      enemyBullets: [],
+      rocks: [],
+      spawnWarnings: [],
+      floatingTexts: [],
+      xpOrbs: [],
+      relics: [],
+      stars: [],
+      clouds: [],
+      dt: 1,
+      audioStarted: false,
+    };
+
+    const ship = { x: WORLD.w / 2, y: WORLD.h / 2, vx: 0, vy: 0, angle: -Math.PI / 2, radius: 16 };
+    const proverbs = [
+      '“Even gold halos cast shadows in corrupted skies.”',
+      '“A demon with purpose outflies an angel with doubt.”',
+      '“The orbit forgives no idle soul.”',
+      '“Light is only honest when it survives the void.”',
+    ];
+
+    function rand(min, max) { return Math.random() * (max - min) + min; }
+    function pick(list) { return list[Math.floor(rand(0, list.length))]; }
+    function enemyHp(type, elite = false) {
+      if (elite) return 9 + Math.floor(state.level / 2);
+      if (type === 'oracle' || type === 'reaper') return 2;
+      return 1;
+    }
+    function drawPixelDiamond(x, y, size, color) {
+      ctx.fillStyle = color;
+      ctx.fillRect(x, y - size, size, size);
+      ctx.fillRect(x - size, y, size * 3, size);
+      ctx.fillRect(x, y + size, size, size);
+    }
+    function drawGothicPanel(x, y, w, h, label = '') {
+      ctx.fillStyle = ART.panel;
+      ctx.fillRect(x, y, w, h);
+      ctx.strokeStyle = ART.gold;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(x + 0.5, y + 0.5, w, h);
+      ctx.strokeStyle = 'rgba(142, 243, 255, 0.55)';
+      ctx.strokeRect(x + 4.5, y + 4.5, w - 8, h - 8);
+      ctx.fillStyle = ART.gold;
+      ctx.fillRect(x + 6, y + 6, 10, 2); ctx.fillRect(x + 6, y + 6, 2, 10);
+      ctx.fillRect(x + w - 16, y + 6, 10, 2); ctx.fillRect(x + w - 8, y + 6, 2, 10);
+      ctx.fillRect(x + 6, y + h - 8, 10, 2); ctx.fillRect(x + 6, y + h - 16, 2, 10);
+      ctx.fillRect(x + w - 16, y + h - 8, 10, 2); ctx.fillRect(x + w - 8, y + h - 16, 2, 10);
+      if (label) {
+        ctx.fillStyle = ART.cyan;
+        ctx.font = '10px Arial';
+        ctx.fillText(label, x + 12, y + 18);
+      }
+    }
+    function biomeSample() {
+      const shifted = ship.x + WORLD_HALF;
+      const raw = shifted / BIOME_WIDTH;
+      const base = Math.floor(raw);
+      const index = ((base % BIOME_NAMES.length) + BIOME_NAMES.length) % BIOME_NAMES.length;
+      const next = (index + 1) % BIOME_NAMES.length;
+      const local = raw - base;
+      const blend = Math.max(0, Math.min(1, (local - 0.62) / 0.34));
+      return { index, next, blend: blend * blend * (3 - 2 * blend) };
+    }
+    function biomeIndex() { return biomeSample().index; }
+    function camera() {
+      return {
+        x: ship.x - canvas.width / (2 * ZOOM),
+        y: ship.y - canvas.height / (2 * ZOOM),
+      };
+    }
+    function isOnScreen(entity, cam, padding = 120) {
+      const x = entity.x - cam.x;
+      const y = entity.y - cam.y;
+      return x > -padding && x < canvas.width + padding && y > -padding && y < canvas.height + padding;
+    }
+
+    function spawnHeavenBackground() {
+      state.stars = Array.from({ length: 170 }, () => ({
+        x: rand(-WORLD_HALF, WORLD_HALF), y: rand(-WORLD_HALF, WORLD_HALF), size: rand(0.7, 1.8), speed: rand(0.015, 0.09), hue: rand(185, 260),
+      }));
+      state.clouds = Array.from({ length: 9 }, () => ({
+        x: rand(-WORLD_HALF - 80, WORLD_HALF + 80), y: rand(-WORLD_HALF + 20, WORLD_HALF - 20), r: rand(80, 180), vx: rand(0.012, 0.045), hue: rand(200, 290), alpha: rand(0.035, 0.075),
+      }));
+    }
+
+    function spawnRocks(count) {
+      for (let i = 0; i < count; i++) {
+        const type = pick(ENEMY_TYPES);
+        const rock = {
+          x: ship.x + rand(-900, 900),
+          y: ship.y + rand(-900, 900),
+          vx: rand(-1.8, 1.8),
+          vy: rand(-1.8, 1.8),
+          angle: rand(0, Math.PI * 2),
+          spin: rand(-0.02, 0.02),
+          r: rand(18, 44),
+          type,
+          hp: enemyHp(type),
+          elite: false,
+        };
+        if (Math.hypot(rock.x - ship.x, rock.y - ship.y) < 120) i--; else state.rocks.push(rock);
+      }
+    }
+
+    function queueSpawns(count) {
+      const availableSlots = Math.max(0, MAX_ENEMIES - state.rocks.length - state.spawnWarnings.length);
+      count = Math.min(count, availableSlots);
+      for (let i = 0; i < count; i++) {
+        const angle = rand(0, Math.PI * 2);
+        const distance = rand(720, 1150);
+        const type = pick(ENEMY_TYPES);
+        state.spawnWarnings.push({
+          x: ship.x + Math.cos(angle) * distance,
+          y: ship.y + Math.sin(angle) * distance,
+          timer: 70 + rand(0, 30),
+          r: rand(18, 44),
+          type,
+          elite: false,
+          hp: enemyHp(type),
+        });
+      }
+    }
+
+    function resetGame() {
+      state.score = 0;
+      state.lives = 3;
+      state.wave = 1;
+      state.xp = 0;
+      state.level = 1;
+      state.nextLevelXp = 60;
+      state.pendingLevelUps = 0;
+      state.upgradeMenu = false;
+      state.started = false;
+      state.launchAnim = 220;
+      state.introScroll = 0;
+      state.shieldLevel = 0;
+      state.gunLevel = 0;
+      state.speedLevel = 0;
+      state.bladeLevel = 0;
+      state.chainLevel = 0;
+      state.magnetLevel = 0;
+      state.novaLevel = 0;
+      state.dashLevel = 0;
+      state.novaTimer = 360;
+      state.novaFlash = 0;
+      state.dashCooldown = 0;
+      state.invuln = 0;
+      state.chainTimer = 180;
+      state.chainFlash = 0;
+      state.spawnTimer = 90;
+      state.eliteTimer = 900;
+      state.runTime = 0;
+      state.autoFire = true;
+      state.paused = false;
+      state.gameOver = false;
+      state.won = false;
+      state.flash = 0;
+      state.shake = 0;
+      state.combo = 0;
+      state.comboTimer = 0;
+      state.deathOverlay = 0;
+      state.deathQuote = '';
+      state.cooldown = 0;
+      state.bullets = [];
+      state.enemyBullets = [];
+      state.particles = [];
+      state.rocks = [];
+      state.spawnWarnings = [];
+      state.floatingTexts = [];
+      state.xpOrbs = [];
+      state.relics = [];
+      ship.x = 0;
+      ship.y = 0;
+      ship.vx = 0;
+      ship.vy = 0;
+      ship.angle = -Math.PI / 2;
+      spawnHeavenBackground();
+      spawnRocks(6);
+    }
+
+    function startAudio() {
+      if (state.audioStarted) return;
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctxA = new AudioCtx();
+      const master = ctxA.createGain();
+      master.gain.value = 0.06;
+      master.connect(ctxA.destination);
+      const notes = [261.63, 329.63, 392.0, 523.25, 587.33, 523.25, 392.0, 329.63];
+      let step = 0;
+      setInterval(() => {
+        const osc = ctxA.createOscillator();
+        const gain = ctxA.createGain();
+        osc.type = step % 2 === 0 ? 'triangle' : 'sine';
+        osc.frequency.value = notes[step % notes.length];
+        gain.gain.setValueAtTime(0.0001, ctxA.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.08, ctxA.currentTime + 0.02);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctxA.currentTime + 0.26);
+        osc.connect(gain); gain.connect(master);
+        osc.start(); osc.stop(ctxA.currentTime + 0.28);
+        step++;
+      }, 300);
+      state.audioStarted = true;
+    }
+
+    function addFloatingText(text, x, y, color = '#fff5cf') {
+      state.floatingTexts.push({ text, x, y, vy: -0.45, life: 70, max: 70, color });
+      if (state.floatingTexts.length > MAX_FLOATING_TEXTS) state.floatingTexts.splice(0, state.floatingTexts.length - MAX_FLOATING_TEXTS);
+    }
+
+    function addXp(amount) {
+      state.xp += amount;
+      while (state.xp >= state.nextLevelXp) {
+        state.xp -= state.nextLevelXp;
+        state.level++;
+        state.nextLevelXp = Math.floor(state.nextLevelXp * XP_GROWTH);
+        state.pendingLevelUps++;
+      }
+    }
+
+    function explode(x, y, count = 24) {
+      for (let i = 0; i < count; i++) {
+        const a = rand(0, Math.PI * 2);
+        const s = rand(0.7, 3.8);
+        state.particles.push({ x, y, vx: Math.cos(a) * s, vy: Math.sin(a) * s, life: rand(20, 45), max: 45, hue: rand(0, 360), size: rand(1.8, 4.2) });
+      }
+      if (state.particles.length > MAX_PARTICLES) state.particles.splice(0, state.particles.length - MAX_PARTICLES);
+    }
+
+    function shoot(targetAngle = ship.angle) {
+      if (state.cooldown > 0 || state.gameOver || state.upgradeMenu || !state.started) return;
+      const speed = 8.5;
+      const spread = state.gunLevel >= 2 ? 0.18 : state.gunLevel >= 1 ? 0.08 : 0;
+      const shots = state.gunLevel >= 2 ? [-spread, 0, spread] : [0];
+      for (const s of shots) {
+        const a = targetAngle + s;
+        state.bullets.push({
+          x: ship.x + Math.cos(a) * 20,
+          y: ship.y + Math.sin(a) * 20,
+          vx: ship.vx + Math.cos(a) * speed,
+          vy: ship.vy + Math.sin(a) * speed,
+          life: 70 + state.gunLevel * 12,
+        });
+      }
+      if (state.bullets.length > MAX_BULLETS) state.bullets.splice(0, state.bullets.length - MAX_BULLETS);
+      state.cooldown = Math.max(5, 10 - state.gunLevel * 2);
+    }
+
+    function dash() {
+      if (state.dashLevel <= 0 || state.dashCooldown > 0 || state.gameOver || state.upgradeMenu || !state.started) return;
+      const force = 3.8 + state.dashLevel * 0.75;
+      ship.vx += Math.cos(ship.angle) * force;
+      ship.vy += Math.sin(ship.angle) * force;
+      state.invuln = Math.max(state.invuln, 24 + state.dashLevel * 8);
+      state.dashCooldown = Math.max(55, 180 - state.dashLevel * 22);
+      state.shake = Math.max(state.shake, 5);
+      for (let i = 0; i < 28; i++) {
+        const a = ship.angle + Math.PI + rand(-0.8, 0.8);
+        const speed = rand(1.2, 4.2);
+        state.particles.push({ x: ship.x, y: ship.y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, life: rand(14, 28), max: 28, hue: rand(185, 320), size: rand(1.5, 4) });
+      }
+      if (state.particles.length > MAX_PARTICLES) state.particles.splice(0, state.particles.length - MAX_PARTICLES);
+    }
+
+    function hit(a, b, r) { return Math.hypot(a.x - b.x, a.y - b.y) < r; }
+
+    function damagePlayer() {
+      if (state.invuln > 0 || state.flash > 0) return false;
+      if (state.shieldLevel > 0) {
+        state.shieldLevel--;
+        state.flash = 20;
+        state.invuln = 35;
+        state.shake = Math.max(state.shake, 10);
+        return 'shield';
+      }
+      state.lives--;
+      state.flash = 60;
+      state.invuln = 90;
+      state.shake = 18;
+      state.combo = 0;
+      state.comboTimer = 0;
+      explode(ship.x, ship.y, 40);
+      ship.x -= Math.cos(ship.angle) * 120;
+      ship.y -= Math.sin(ship.angle) * 120;
+      ship.vx = 0;
+      ship.vy = 0;
+      state.deathOverlay = 120;
+      state.deathQuote = pick(proverbs);
+      if (state.lives <= 0) {
+        state.gameOver = true;
+        state.won = false;
+      }
+      return true;
+    }
+
+    function nearestEnemy(maxDistance = 900) {
+      let best = null;
+      let bestDist = maxDistance;
+      for (const r of state.rocks) {
+        const dist = Math.hypot(r.x - ship.x, r.y - ship.y);
+        if (dist < bestDist) { best = r; bestDist = dist; }
+      }
+      return best;
+    }
+
+    function defeatEnemy(r) {
+      r.dead = true;
+      state.combo++;
+      state.comboTimer = 180;
+      const points = (r.elite ? 180 : 20) * Math.max(1, state.combo);
+      state.score += points;
+      addFloatingText(`+${points} x${state.combo}`, r.x, r.y, '#fff5cf');
+      explode(r.x, r.y, r.elite ? 70 : 28);
+      if (r.elite) state.relics.push({ x: r.x, y: r.y, r: 14, value: 160, hue: 48 });
+      else state.xpOrbs.push({ x: r.x, y: r.y, value: rand(20, 36), r: 7, hue: rand(170, 320) });
+      if (state.xpOrbs.length > MAX_PICKUPS) state.xpOrbs.splice(0, state.xpOrbs.length - MAX_PICKUPS);
+    }
+
+    function damageEnemy(r, damage = 1, color = ART.cyan) {
+      r.hp = (r.hp || 1) - damage;
+      state.shake = Math.max(state.shake, r.elite ? 7 : 4);
+      if (r.hp > 0) {
+        addFloatingText(`${Math.ceil(r.hp)}`, r.x, r.y - r.r, color);
+        return false;
+      }
+      defeatEnemy(r);
+      return true;
+    }
+
+    function queueEliteSpawn() {
+      const angle = rand(0, Math.PI * 2);
+      const distance = rand(860, 1250);
+      state.spawnWarnings.push({
+        x: ship.x + Math.cos(angle) * distance,
+        y: ship.y + Math.sin(angle) * distance,
+        timer: 125,
+        r: 64,
+        type: 'dread',
+        elite: true,
+        hp: 9 + Math.floor(state.level / 2),
+      });
+      addFloatingText('DREAD SERAPH INBOUND', ship.x, ship.y - 90, ART.magenta);
+    }
+
+    function update() {
+      if (state.gameOver || !state.started) return;
+      if (state.deathOverlay > 0) { state.deathOverlay -= state.dt; return; }
+      if (state.upgradeMenu) return;
+      if (state.cooldown > 0) state.cooldown--;
+      if (state.dashCooldown > 0) state.dashCooldown -= state.dt;
+      if (state.invuln > 0) state.invuln -= state.dt;
+      if (state.flash > 0) state.flash--;
+      if (state.shake > 0) state.shake *= 0.88;
+      if (state.shake < 0.1) state.shake = 0;
+      if (state.comboTimer > 0) state.comboTimer -= state.dt; else state.combo = 0;
+      if (state.chainFlash > 0) state.chainFlash -= state.dt;
+      if (state.novaFlash > 0) state.novaFlash -= state.dt;
+      state.runTime += state.dt / 60;
+      state.eliteTimer -= state.dt;
+      if (state.eliteTimer <= 0) {
+        queueEliteSpawn();
+        state.eliteTimer = Math.max(720, 1050 - state.level * 20);
+      }
+      if (state.autoFire && state.cooldown <= 0) {
+        const target = nearestEnemy(1350);
+        if (target) shoot(Math.atan2(target.y - ship.y, target.x - ship.x));
+      }
+      if (state.chainLevel > 0) {
+        state.chainTimer -= state.dt;
+        if (state.chainTimer <= 0) {
+          const hits = Math.min(1 + state.chainLevel, state.rocks.length);
+          const targets = [...state.rocks]
+            .sort((a, b) => Math.hypot(a.x - ship.x, a.y - ship.y) - Math.hypot(b.x - ship.x, b.y - ship.y))
+            .slice(0, hits);
+          for (const target of targets) {
+            if (Math.hypot(target.x - ship.x, target.y - ship.y) < 720) {
+              damageEnemy(target, 1, ART.violet);
+              state.particles.push({ x: target.x, y: target.y, vx: 0, vy: 0, life: 18, max: 18, hue: 282, size: 6 });
+            }
+          }
+          state.chainFlash = 12;
+          state.chainTimer = Math.max(45, 150 - state.chainLevel * 18);
+          if (state.particles.length > MAX_PARTICLES) state.particles.splice(0, state.particles.length - MAX_PARTICLES);
+        }
+      }
+      if (state.bladeLevel > 0) {
+        const bladeCount = Math.min(6, state.bladeLevel + 1);
+        const orbit = 54 + state.bladeLevel * 8;
+        for (let i = 0; i < bladeCount; i++) {
+          const a = state.beat * 2.8 + (Math.PI * 2 * i) / bladeCount;
+          const blade = { x: ship.x + Math.cos(a) * orbit, y: ship.y + Math.sin(a) * orbit };
+          for (const r of state.rocks) {
+            if (!r.bladeHit && hit(blade, r, r.r + 8)) {
+              r.bladeHit = 16;
+              damageEnemy(r, 1, ART.gold);
+            }
+          }
+        }
+      }
+      if (state.novaLevel > 0) {
+        state.novaTimer -= state.dt;
+        if (state.novaTimer <= 0) {
+          const radius = 145 + state.novaLevel * 48;
+          const damage = 1 + Math.floor(state.novaLevel / 3);
+          let hits = 0;
+          for (const r of state.rocks) {
+            if (Math.hypot(r.x - ship.x, r.y - ship.y) < radius + r.r) {
+              damageEnemy(r, damage, ART.magenta);
+              hits++;
+            }
+          }
+          for (let i = 0; i < 46 + state.novaLevel * 8; i++) {
+            const a = rand(0, Math.PI * 2);
+            const speed = rand(1.8, 6.2);
+            state.particles.push({ x: ship.x, y: ship.y, vx: Math.cos(a) * speed, vy: Math.sin(a) * speed, life: rand(18, 42), max: 42, hue: rand(285, 360), size: rand(2, 5.2) });
+          }
+          if (hits > 0) addFloatingText(`NOVA x${hits}`, ship.x, ship.y - 86, ART.magenta);
+          state.novaFlash = 24;
+          state.shake = Math.max(state.shake, 7 + state.novaLevel);
+          state.novaTimer = Math.max(90, 300 - state.novaLevel * 28);
+          if (state.particles.length > MAX_PARTICLES) state.particles.splice(0, state.particles.length - MAX_PARTICLES);
+        }
+      }
+      state.spawnTimer -= state.dt;
+      state.beat += 0.03 * state.dt;
+      if (state.spawnTimer <= 0) {
+        queueSpawns(1 + Math.floor(state.level / 3));
+        state.spawnTimer = Math.max(28, 82 - state.level * 3 + rand(-10, 10));
+      }
+
+      for (const warning of state.spawnWarnings) {
+        warning.timer -= state.dt;
+        if (warning.timer <= 0) {
+          state.rocks.push({
+            x: warning.x, y: warning.y, vx: rand(-1.9, 1.9), vy: rand(-1.9, 1.9),
+            angle: rand(0, Math.PI * 2), spin: rand(-0.025, 0.025), r: warning.r, type: warning.type,
+            elite: !!warning.elite, hp: warning.hp || 1, maxHp: warning.hp || 1,
+          });
+          warning.dead = true;
+        }
+      }
+      state.spawnWarnings = state.spawnWarnings.filter(w => !w.dead && Math.hypot(w.x - ship.x, w.y - ship.y) < 2600);
+
+      const rotSpeed = 0.064;
+      const thrust = SHIP_BASE_THRUST + state.speedLevel * SHIP_SPEED_UPGRADE;
+      if (state.keys.ArrowLeft || state.keys.a) ship.angle -= rotSpeed * state.dt;
+      if (state.keys.ArrowRight || state.keys.d) ship.angle += rotSpeed * state.dt;
+      if (state.keys.ArrowUp || state.keys.w) {
+        ship.vx += Math.cos(ship.angle) * thrust * state.dt;
+        ship.vy += Math.sin(ship.angle) * thrust * state.dt;
+        for (let i = 0; i < 2; i++) {
+          state.particles.push({
+            x: ship.x - Math.cos(ship.angle) * 14 + rand(-2, 2),
+            y: ship.y - Math.sin(ship.angle) * 14 + rand(-2, 2),
+            vx: -Math.cos(ship.angle) * rand(1.5, 3.2),
+            vy: -Math.sin(ship.angle) * rand(1.5, 3.2),
+            life: rand(8, 16), max: 16, hue: rand(20, 60), size: rand(1.2, 2.8),
+          });
+        }
+        if (state.particles.length > MAX_PARTICLES) state.particles.splice(0, state.particles.length - MAX_PARTICLES);
+      }
+      if (state.keys.ArrowDown || state.keys.s) {
+        ship.vx -= Math.cos(ship.angle) * thrust * 0.66 * state.dt;
+        ship.vy -= Math.sin(ship.angle) * thrust * 0.66 * state.dt;
+      }
+
+      ship.vx *= 0.978;
+      ship.vy *= 0.978;
+      const shipSpeed = Math.hypot(ship.vx, ship.vy);
+      const maxSpeed = SHIP_MAX_SPEED + state.speedLevel * 0.35;
+      if (shipSpeed > maxSpeed) {
+        ship.vx = (ship.vx / shipSpeed) * maxSpeed;
+        ship.vy = (ship.vy / shipSpeed) * maxSpeed;
+      }
+      ship.x += ship.vx * state.dt;
+      ship.y += ship.vy * state.dt;
+      ship.x = Math.max(-WORLD_HALF, Math.min(WORLD_HALF, ship.x));
+      ship.y = Math.max(-WORLD_HALF, Math.min(WORLD_HALF, ship.y));
+
+      for (const s of state.stars) { s.y += s.speed * state.dt; if (s.y > WORLD_HALF + 2) { s.y = -WORLD_HALF - 2; s.x = rand(-WORLD_HALF, WORLD_HALF); } }
+      for (const c of state.clouds) { c.x += c.vx * state.dt; if (c.x > WORLD_HALF + 90) c.x = -WORLD_HALF - 90; }
+
+      for (const b of state.bullets) {
+        b.x += b.vx * state.dt;
+        b.y += b.vy * state.dt;
+        b.life -= state.dt;
+        if (Math.hypot(b.x - ship.x, b.y - ship.y) > 2600) b.life = -1;
+      }
+      state.bullets = state.bullets.filter(b => b.life > 0);
+
+      for (const b of state.enemyBullets) {
+        b.x += b.vx * state.dt;
+        b.y += b.vy * state.dt;
+        b.life -= state.dt;
+        if (Math.hypot(b.x - ship.x, b.y - ship.y) > 2200) b.dead = true;
+        if (hit(b, ship, ship.radius + 5)) {
+          b.dead = true;
+          damagePlayer();
+        }
+      }
+      state.enemyBullets = state.enemyBullets.filter(b => !b.dead && b.life > 0);
+
+      for (const r of state.rocks) {
+        if (r.bladeHit > 0) r.bladeHit -= state.dt;
+        else r.bladeHit = 0;
+        const dx = ship.x - r.x;
+        const dy = ship.y - r.y;
+        const dist = Math.hypot(dx, dy) || 1;
+        if (r.type === 'dread') {
+          r.vx += (dx / dist) * 0.012 * state.dt;
+          r.vy += (dy / dist) * 0.012 * state.dt;
+        } else if (r.type === 'warden') {
+          r.vx += (dx / dist) * 0.018 * state.dt;
+          r.vy += (dy / dist) * 0.018 * state.dt;
+        } else if (r.type === 'archon') {
+          r.vx += (-dy / dist) * 0.012 * state.dt;
+          r.vy += (dx / dist) * 0.012 * state.dt;
+        } else if (r.type === 'cherub') {
+          r.vx += (dx / dist) * 0.028 * state.dt;
+          r.vy += (dy / dist) * 0.028 * state.dt;
+        } else if (r.type === 'reaper') {
+          r.vx += (-dx / dist) * 0.006 * state.dt;
+          r.vy += (-dy / dist) * 0.006 * state.dt;
+        } else if (r.type === 'oracle') {
+          const desired = 520;
+          const force = (dist - desired) * 0.00007;
+          r.vx += (dx / dist) * force * state.dt;
+          r.vy += (dy / dist) * force * state.dt;
+          r.shotTimer = (r.shotTimer || rand(80, 160)) - state.dt;
+          if (r.shotTimer <= 0 && state.enemyBullets.length < MAX_ENEMY_BULLETS) {
+            const a = Math.atan2(ship.y - r.y, ship.x - r.x);
+            state.enemyBullets.push({ x: r.x, y: r.y, vx: Math.cos(a) * 3.2, vy: Math.sin(a) * 3.2, life: 240 });
+            r.shotTimer = rand(130, 210);
+          }
+        }
+        const speed = Math.hypot(r.vx, r.vy);
+        if (speed > 2.8) { r.vx = (r.vx / speed) * 2.8; r.vy = (r.vy / speed) * 2.8; }
+        r.x += r.vx * state.dt;
+        r.y += r.vy * state.dt;
+        r.angle += r.spin * state.dt;
+        if (Math.hypot(r.x - ship.x, r.y - ship.y) > 3600) r.dead = true;
+      }
+
+      for (const p of state.particles) {
+        p.x += p.vx * state.dt;
+        p.y += p.vy * state.dt;
+        p.vx *= 0.985;
+        p.vy *= 0.985;
+        p.life -= state.dt;
+      }
+      state.particles = state.particles.filter(p => p.life > 0);
+
+      for (const b of state.bullets) {
+        for (const r of state.rocks) {
+          if (hit(b, r, r.r)) {
+            b.life = -1;
+            damageEnemy(r, 1, ART.cyan);
+            break;
+          }
+        }
+      }
+      state.rocks = state.rocks.filter(r => !r.dead);
+
+      for (const r of state.rocks) {
+        if (hit(ship, r, ship.radius + r.r * 0.75)) {
+          const result = damagePlayer();
+          if (result === 'shield') {
+            r.dead = true;
+            explode(r.x, r.y, 18);
+          }
+          if (result) break;
+        }
+      }
+      state.rocks = state.rocks.filter(r => !r.dead);
+
+      for (const orb of state.xpOrbs) {
+        const dx = ship.x - orb.x;
+        const dy = ship.y - orb.y;
+        const dist = Math.hypot(dx, dy);
+        const magnetRange = 260 + state.magnetLevel * 70;
+        if (dist < magnetRange) {
+          const pull = 1.2 + (magnetRange - dist) * (0.02 + state.magnetLevel * 0.003);
+          orb.x += (dx / (dist || 1)) * pull * state.dt;
+          orb.y += (dy / (dist || 1)) * pull * state.dt;
+        }
+        if (dist < ship.radius + orb.r + 6) {
+          orb.dead = true;
+          addXp(orb.value);
+        }
+      }
+      state.xpOrbs = state.xpOrbs.filter(o => !o.dead);
+      for (const relic of state.relics) {
+        const dx = ship.x - relic.x;
+        const dy = ship.y - relic.y;
+        const dist = Math.hypot(dx, dy);
+        const relicMagnetRange = 320 + state.magnetLevel * 70;
+        if (dist < relicMagnetRange) {
+          const pull = 1.5 + (relicMagnetRange - dist) * (0.018 + state.magnetLevel * 0.003);
+          relic.x += (dx / (dist || 1)) * pull * state.dt;
+          relic.y += (dy / (dist || 1)) * pull * state.dt;
+        }
+        if (dist < ship.radius + relic.r + 8) {
+          relic.dead = true;
+          addXp(relic.value);
+          state.shieldLevel++;
+          addFloatingText('RELIC: SHIELD + XP', ship.x, ship.y - 70, ART.gold);
+        }
+      }
+      state.relics = state.relics.filter(relic => !relic.dead);
+      if (state.relics.length > 24) state.relics.splice(0, state.relics.length - 24);
+      for (const text of state.floatingTexts) {
+        text.y += text.vy * state.dt;
+        text.life -= state.dt;
+      }
+      state.floatingTexts = state.floatingTexts.filter(text => text.life > 0);
+      if (state.pendingLevelUps > 0) state.upgradeMenu = true;
+    }
+
+    function hexToRgb(hex) {
+      const value = parseInt(hex.slice(1), 16);
+      return { r: (value >> 16) & 255, g: (value >> 8) & 255, b: value & 255 };
+    }
+    function mixHex(a, b, t) {
+      const ca = hexToRgb(a), cb = hexToRgb(b);
+      const r = Math.round(ca.r + (cb.r - ca.r) * t);
+      const g = Math.round(ca.g + (cb.g - ca.g) * t);
+      const bl = Math.round(ca.b + (cb.b - ca.b) * t);
+      return `rgb(${r},${g},${bl})`;
+    }
+
+    function drawBackground(cam) {
+      const pulse = 0.5 + Math.sin(state.beat) * 0.5;
+      const sample = biomeSample();
+      const biomeX = sample.index;
+      const biomes = [
+        { top: '#071326', mid: '#102848', bottom: '#1f4f72', accent: '#78ccff', name: 'ice comet field' },
+        { top: '#10091f', mid: '#20143a', bottom: '#3c1f5a', accent: '#b67cff', name: 'violet deep space' },
+        { top: '#071c18', mid: '#12362d', bottom: '#1c5a48', accent: '#72f0bd', name: 'emerald nebula' },
+        { top: '#16110b', mid: '#33230e', bottom: '#5e3b13', accent: '#ffd089', name: 'gold dust belt' },
+        { top: '#1a0710', mid: '#33101d', bottom: '#5b1b2d', accent: '#ff7898', name: 'crimson ion storm' },
+        { top: '#061820', mid: '#0d343c', bottom: '#155967', accent: '#9ff8ff', name: 'solar reef' },
+        { top: '#05050a', mid: '#121422', bottom: '#272844', accent: '#9f92ff', name: 'obsidian choir' },
+        { top: '#03151f', mid: '#0b3441', bottom: '#125e6b', accent: '#c8fff1', name: 'aurora crypt' },
+      ];
+      const current = biomes[sample.index];
+      const next = biomes[sample.next];
+      const palette = {
+        top: mixHex(current.top, next.top, sample.blend),
+        mid: mixHex(current.mid, next.mid, sample.blend),
+        bottom: mixHex(current.bottom, next.bottom, sample.blend),
+        accent: mixHex(current.accent, next.accent, sample.blend),
+      };
+
+      ctx.fillStyle = '#030712';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      const g = ctx.createLinearGradient(0, 0, 0, canvas.height);
+      g.addColorStop(0, palette.top);
+      g.addColorStop(0.55, palette.mid);
+      g.addColorStop(1, palette.bottom);
+      ctx.fillStyle = g;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      // Soft nebula layers: big, slow, low-contrast shapes so gameplay remains readable.
+      ctx.globalAlpha = 0.26;
+      for (let i = 0; i < 5; i++) {
+        const x = ((i * 240 - cam.x * (0.02 + i * 0.006)) % (canvas.width + 360)) - 180;
+        const y = ((i * 150 - cam.y * (0.015 + i * 0.004)) % (canvas.height + 260)) - 130;
+        const r = 120 + i * 34 + pulse * 12;
+        const nebula = ctx.createRadialGradient(x, y, 0, x, y, r);
+        nebula.addColorStop(0, palette.accent.replace('rgb', 'rgba').replace(')', ',0.22)'));
+        nebula.addColorStop(1, 'rgba(0,0,0,0)');
+        ctx.fillStyle = nebula;
+        ctx.beginPath();
+        ctx.arc(x, y, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.globalAlpha = 1;
+
+      // Subtle star parallax layers.
+      for (const s of state.stars) {
+        const sx = ((s.x - cam.x * 0.18) % (canvas.width + 20) + canvas.width + 20) % (canvas.width + 20) - 10;
+        const sy = ((s.y - cam.y * 0.18) % (canvas.height + 20) + canvas.height + 20) % (canvas.height + 20) - 10;
+        ctx.fillStyle = `hsla(${s.hue},70%,88%,0.72)`;
+        ctx.fillRect(Math.floor(sx), Math.floor(sy), s.size, s.size);
+      }
+      for (const s of state.stars.slice(0, 80)) {
+        const sx = ((s.x - cam.x * 0.42) % (canvas.width + 20) + canvas.width + 20) % (canvas.width + 20) - 10;
+        const sy = ((s.y - cam.y * 0.42) % (canvas.height + 20) + canvas.height + 20) % (canvas.height + 20) - 10;
+        ctx.fillStyle = `hsla(${s.hue + 30},80%,92%,0.55)`;
+        ctx.fillRect(Math.floor(sx), Math.floor(sy), Math.max(1, s.size * 1.25), Math.max(1, s.size * 1.25));
+      }
+
+      // Space landmarks that explain biomes without flooding the combat layer.
+      const t = performance.now() * 0.001;
+      ctx.save();
+      ctx.globalAlpha = 0.38;
+      ctx.strokeStyle = palette.accent;
+      ctx.fillStyle = palette.accent;
+      if (biomeX === 0) { // comet shards
+        for (let i = 0; i < 10; i++) {
+          const x = ((i * 191 - cam.x * 0.08) % (canvas.width + 140)) - 70;
+          const y = ((i * 89 - cam.y * 0.05) % (canvas.height + 100)) - 50;
+          ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(x + 26, y + 8); ctx.lineTo(x + 6, y + 28); ctx.closePath(); ctx.stroke();
+        }
+      } else if (biomeX === 1) { // distant portal rings
+        for (let i = 0; i < 5; i++) {
+          const x = ((i * 230 - cam.x * 0.06) % (canvas.width + 180)) - 90;
+          const y = ((i * 130 - cam.y * 0.04) % (canvas.height + 140)) - 70;
+          ctx.beginPath(); ctx.arc(x, y, 18 + Math.sin(t + i) * 3, 0, Math.PI * 2); ctx.stroke();
+        }
+      } else if (biomeX === 2) { // nebula spores
+        for (let i = 0; i < 18; i++) {
+          const x = ((i * 137 - cam.x * 0.055) % (canvas.width + 100)) - 50;
+          const y = ((i * 83 - cam.y * 0.045) % (canvas.height + 90)) - 45;
+          ctx.fillRect(x, y, 3, 3); ctx.fillRect(x + 7, y + 4, 2, 2);
+        }
+      } else if (biomeX === 3) { // asteroid-dust lanes
+        ctx.globalAlpha = 0.2;
+        for (let i = 0; i < 6; i++) {
+          ctx.beginPath();
+          ctx.moveTo(-60, i * 95 + ((cam.y * 0.06 + t * 20) % 95));
+          ctx.lineTo(canvas.width + 60, i * 95 + 35 + ((cam.y * 0.06 + t * 20) % 95));
+          ctx.stroke();
+        }
+      } else if (biomeX === 4) { // ion lightning far behind playfield
+        ctx.globalAlpha = 0.18;
+        for (let i = 0; i < 5; i++) {
+          const x = ((i * 180 - cam.x * 0.04) % (canvas.width + 100)) - 50;
+          ctx.beginPath(); ctx.moveTo(x, 0); ctx.lineTo(x + 28, 90); ctx.lineTo(x - 8, 190); ctx.lineTo(x + 20, canvas.height); ctx.stroke();
+        }
+      } else if (biomeX === 5) { // reef arcs
+        for (let i = 0; i < 7; i++) {
+          const x = ((i * 160 - cam.x * 0.07) % (canvas.width + 120)) - 60;
+          const y = ((i * 110 - cam.y * 0.05) % (canvas.height + 100)) - 50;
+          ctx.beginPath(); ctx.arc(x, y, 28, Math.PI * 0.1, Math.PI * 1.2); ctx.stroke();
+        }
+      } else if (biomeX === 6) { // monolith silhouettes
+        ctx.globalAlpha = 0.22;
+        for (let i = 0; i < 8; i++) {
+          const x = ((i * 155 - cam.x * 0.05) % (canvas.width + 120)) - 60;
+          const h = 50 + (i % 3) * 28;
+          ctx.fillRect(x, canvas.height - h - 20, 12, h);
+        }
+      } else { // aurora curtains
+        ctx.globalAlpha = 0.18;
+        for (let i = 0; i < 7; i++) {
+          const x = i * 120 - ((cam.x * 0.035 + t * 18) % 120);
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.bezierCurveTo(x + 35, 130, x - 30, 260, x + 25, canvas.height);
+          ctx.stroke();
+        }
+      }
+      ctx.restore();
+
+      // Biome transition veil: tells the player the region is changing smoothly.
+      if (sample.blend > 0.05) {
+        ctx.fillStyle = `rgba(255,255,255,${0.035 * sample.blend})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+    }
+
+    function drawShip(cam) {
+      ctx.save();
+      ctx.translate(ship.x - cam.x, ship.y - cam.y);
+      ctx.rotate(ship.angle + Math.PI / 2);
+
+      const hitBlink = state.flash > 0 && Math.floor(state.flash / 4) % 2 === 0;
+      ctx.shadowColor = hitBlink ? ART.bone : ART.magenta;
+      ctx.shadowBlur = hitBlink ? 18 : 10;
+      ctx.strokeStyle = ART.gold;
+      ctx.lineWidth = 1;
+      ctx.strokeRect(-18, -18, 36, 36);
+      ctx.shadowBlur = 0;
+
+      const sprite = [
+        '....XX....',
+        '...XXXX...',
+        '..XXOOXX..',
+        '.XXXOOXXX.',
+        'XX######XX',
+        '..X####X..',
+        '..X.XX.X..',
+      ];
+      const px = 3;
+      for (let y = 0; y < sprite.length; y++) {
+        for (let x = 0; x < sprite[y].length; x++) {
+          const c = sprite[y][x];
+          if (c === '.') continue;
+          if (c === 'X') ctx.fillStyle = hitBlink ? '#ffd4d4' : '#be1c27';
+          else if (c === 'O') ctx.fillStyle = '#ff9a9a';
+          else ctx.fillStyle = '#ffd56a';
+          ctx.fillRect((x - 5) * px, (y - 4) * px, px, px);
+        }
+      }
+      if (state.keys.ArrowUp || state.keys.w) {
+        const thrustPulse = 2 + Math.sin(performance.now() * 0.05) * 2;
+        ctx.fillStyle = `hsla(${35 + Math.sin(performance.now() * 0.05) * 18},100%,65%,0.9)`;
+        ctx.fillRect(-6, 12, 3, 10 + thrustPulse);
+        ctx.fillRect(3, 12, 3, 10 + thrustPulse);
+      }
+      if (state.keys.ArrowDown || state.keys.s) {
+        const reversePulse = 2 + Math.sin(performance.now() * 0.04) * 2;
+        ctx.fillStyle = `hsla(${200 + Math.sin(performance.now() * 0.04) * 30},100%,75%,0.9)`;
+        ctx.fillRect(-3, -24 - reversePulse, 3, 8);
+        ctx.fillRect(0, -28 - reversePulse, 3, 10);
+        ctx.fillRect(3, -24 - reversePulse, 3, 8);
+      }
+
+      ctx.restore();
+      if (state.invuln > 0 && state.dashLevel > 0) {
+        ctx.strokeStyle = `rgba(255, 216, 107, ${Math.min(0.75, state.invuln / 42)})`;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.arc(ship.x - cam.x, ship.y - cam.y, ship.radius + 15 + Math.sin(performance.now() * 0.04) * 4, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+      if (state.shieldLevel > 0) {
+        ctx.strokeStyle = `hsla(${190 + performance.now() * 0.05},100%,80%,0.8)`;
+        ctx.lineWidth = 2.2;
+        ctx.beginPath();
+        ctx.arc(ship.x - cam.x, ship.y - cam.y, ship.radius + 8 + state.shieldLevel * 2, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    function drawAngelRock(r, cam) {
+      ctx.save();
+      ctx.translate(r.x - cam.x, r.y - cam.y);
+      ctx.rotate(r.angle);
+
+      const bob = Math.sin(performance.now() * 0.004 + r.x * 0.01) * 2;
+      ctx.shadowColor = r.type === 'reaper' ? ART.magenta : r.type === 'cherub' ? '#90ef9d' : r.type === 'archon' ? ART.violet : r.type === 'warden' ? ART.cyan : ART.gold;
+      ctx.shadowBlur = 12;
+      if (r.type === 'dread') {
+        ctx.strokeStyle = ART.magenta;
+        ctx.lineWidth = 3;
+        ctx.strokeRect(-r.r * 0.72, -r.r * 0.72 + bob, r.r * 1.44, r.r * 1.44);
+        ctx.strokeStyle = ART.gold;
+        ctx.strokeRect(-r.r * 0.48, -r.r * 0.48 - bob, r.r * 0.96, r.r * 0.96);
+        ctx.fillStyle = 'rgba(255, 92, 134, 0.18)';
+        ctx.fillRect(-r.r * 0.55, -r.r * 0.55, r.r * 1.1, r.r * 1.1);
+      } else if (r.type === 'seraph') {
+        ctx.strokeStyle = 'hsla(48,100%,80%,0.8)';
+        ctx.lineWidth = 1.4;
+        ctx.strokeRect(-r.r * 0.8, -r.r * 0.4 + bob, r.r * 1.6, r.r * 0.8);
+        ctx.strokeRect(-r.r * 0.5, -r.r * 0.7 + bob, r.r, r.r * 1.4);
+      } else if (r.type === 'warden') {
+        ctx.strokeStyle = 'hsla(195,100%,80%,0.85)';
+        ctx.lineWidth = 1.8;
+        ctx.beginPath();
+        for (let i = 0; i < 6; i++) {
+          const a = (Math.PI * 2 * i) / 6;
+          const px = Math.cos(a) * r.r * 0.9;
+          const py = Math.sin(a) * r.r * 0.9;
+          i === 0 ? ctx.moveTo(px, py) : ctx.lineTo(px, py);
+        }
+        ctx.closePath();
+        ctx.stroke();
+      } else if (r.type === 'cherub') {
+        ctx.strokeStyle = 'hsla(120,100%,82%,0.82)';
+        ctx.lineWidth = 1.4;
+        ctx.strokeRect(-r.r * 0.45, -r.r * 0.45 + bob, r.r * 0.9, r.r * 0.9);
+        ctx.strokeRect(-r.r * 0.65, -r.r * 0.12 + bob, r.r * 1.3, r.r * 0.24);
+      } else if (r.type === 'reaper') {
+        ctx.strokeStyle = 'hsla(0,100%,75%,0.82)';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.moveTo(-r.r, -r.r * 0.25);
+        ctx.lineTo(r.r, r.r * 0.25);
+        ctx.moveTo(-r.r * 0.25, r.r);
+        ctx.lineTo(r.r * 0.25, -r.r);
+        ctx.stroke();
+      } else if (r.type === 'oracle') {
+        ctx.strokeStyle = 'hsla(260,100%,82%,0.86)';
+        ctx.lineWidth = 1.6;
+        ctx.beginPath();
+        ctx.arc(0, bob, r.r * 0.65, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeRect(-r.r * 0.35, -r.r * 0.35 + bob, r.r * 0.7, r.r * 0.7);
+      } else {
+        ctx.strokeStyle = 'hsla(300,100%,80%,0.75)';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo(0, -r.r);
+        ctx.lineTo(r.r * 0.5, 0);
+        ctx.lineTo(0, r.r);
+        ctx.lineTo(-r.r * 0.5, 0);
+        ctx.closePath();
+        ctx.stroke();
+      }
+
+      ctx.fillStyle = 'hsla(42,90%,86%,0.95)';
+      ctx.fillRect(-3, -3 + bob, 6, 6);
+      ctx.fillStyle = '#2b2442';
+      ctx.fillRect(-1, -1 + bob, 2, 2);
+      if (r.elite && r.maxHp > 1) {
+        ctx.fillStyle = 'rgba(5, 6, 18, 0.82)';
+        ctx.fillRect(-r.r * 0.7, r.r + 8, r.r * 1.4, 5);
+        ctx.fillStyle = ART.magenta;
+        ctx.fillRect(-r.r * 0.7, r.r + 8, r.r * 1.4 * (r.hp / r.maxHp), 5);
+      }
+      ctx.shadowBlur = 0;
+      ctx.restore();
+    }
+
+    function drawBullets(cam) {
+      for (const b of state.bullets) {
+        const x = b.x - cam.x;
+        const y = b.y - cam.y;
+        ctx.shadowColor = ART.gold;
+        ctx.shadowBlur = 8;
+        drawPixelDiamond(x, y, 2, ART.bone);
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    function drawEnemyBullets(cam) {
+      for (const b of state.enemyBullets) {
+        const x = b.x - cam.x;
+        const y = b.y - cam.y;
+        ctx.shadowColor = ART.magenta;
+        ctx.shadowBlur = 8;
+        drawPixelDiamond(x, y, 3, ART.magenta);
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    function drawOrbs(cam) {
+      for (const o of state.xpOrbs) {
+        const pulse = 1 + Math.sin(performance.now() * 0.01 + o.x) * 0.25;
+        const x = o.x - cam.x;
+        const y = o.y - cam.y;
+        ctx.shadowColor = `hsl(${o.hue},100%,70%)`;
+        ctx.shadowBlur = 10;
+        drawPixelDiamond(x, y, Math.max(2, o.r * 0.45 * pulse), `hsla(${o.hue},100%,70%,0.95)`);
+        ctx.shadowBlur = 0;
+      }
+    }
+
+
+    function drawRelics(cam) {
+      for (const relic of state.relics) {
+        const pulse = 1 + Math.sin(performance.now() * 0.012 + relic.x) * 0.22;
+        const x = relic.x - cam.x;
+        const y = relic.y - cam.y;
+        ctx.shadowColor = ART.gold;
+        ctx.shadowBlur = 18;
+        drawPixelDiamond(x, y, relic.r * 0.7 * pulse, ART.gold);
+        ctx.fillStyle = ART.bone;
+        ctx.fillRect(x - 2, y - 2, 4, 4);
+        ctx.shadowBlur = 0;
+      }
+    }
+
+    function drawParticles(cam) {
+      for (const p of state.particles) {
+        ctx.fillStyle = `hsla(${p.hue},100%,65%,${Math.max(0, p.life / p.max)})`;
+        ctx.fillRect(p.x - cam.x, p.y - cam.y, p.size, p.size);
+      }
+    }
+
+    function drawFloatingTexts(cam) {
+      ctx.textAlign = 'center';
+      ctx.font = '16px Arial';
+      for (const text of state.floatingTexts) {
+        const alpha = Math.max(0, text.life / text.max);
+        ctx.fillStyle = text.color;
+        ctx.globalAlpha = alpha;
+        ctx.fillText(text.text, text.x - cam.x, text.y - cam.y);
+      }
+      ctx.globalAlpha = 1;
+      ctx.textAlign = 'left';
+    }
+
+
+
+    function drawSpawnWarnings(cam) {
+      for (const warning of state.spawnWarnings) {
+        const pulse = 0.45 + Math.sin(performance.now() * 0.018) * 0.25;
+        ctx.strokeStyle = `rgba(255, 215, 110, ${pulse})`;
+        ctx.lineWidth = 2;
+        ctx.strokeRect(warning.x - cam.x - warning.r, warning.y - cam.y - warning.r, warning.r * 2, warning.r * 2);
+        ctx.fillStyle = `rgba(255, 108, 180, ${pulse})`;
+        ctx.fillRect(warning.x - cam.x - 2, warning.y - cam.y - 2, 4, 4);
+      }
+    }
+
+    function drawThreatIndicators(cam) {
+      const margin = 24;
+      for (const r of state.rocks) {
+        const sx = r.x - cam.x;
+        const sy = r.y - cam.y;
+        if (sx > 0 && sx < canvas.width && sy > 0 && sy < canvas.height) continue;
+        const angle = Math.atan2(sy - canvas.height / 2, sx - canvas.width / 2);
+        const ix = canvas.width / 2 + Math.cos(angle) * (canvas.width / 2 - margin);
+        const iy = canvas.height / 2 + Math.sin(angle) * (canvas.height / 2 - margin);
+        ctx.save();
+        ctx.translate(ix, iy);
+        ctx.rotate(angle);
+        ctx.fillStyle = 'rgba(255, 92, 134, 0.85)';
+        ctx.beginPath();
+        ctx.moveTo(10, 0);
+        ctx.lineTo(-8, -6);
+        ctx.lineTo(-8, 6);
+        ctx.closePath();
+        ctx.fill();
+        ctx.restore();
+      }
+    }
+
+    function drawNearestEnemyGuide(cam) {
+      const target = nearestEnemy(2000);
+      if (!target) return;
+      const dx = target.x - ship.x;
+      const dy = target.y - ship.y;
+      const dist = Math.hypot(dx, dy);
+      if (dist < 260) return;
+      const angle = Math.atan2(dy, dx);
+      const x = canvas.width / 2 + Math.cos(angle) * 78;
+      const y = canvas.height / 2 + Math.sin(angle) * 78;
+      ctx.save();
+      ctx.translate(x, y);
+      ctx.rotate(angle);
+      ctx.fillStyle = 'rgba(255,216,107,0.88)';
+      ctx.beginPath();
+      ctx.moveTo(14, 0);
+      ctx.lineTo(-8, -6);
+      ctx.lineTo(-4, 0);
+      ctx.lineTo(-8, 6);
+      ctx.closePath();
+      ctx.fill();
+      ctx.restore();
+      ctx.fillStyle = 'rgba(255,245,207,0.78)';
+      ctx.font = '11px Arial';
+      ctx.textAlign = 'center';
+      ctx.fillText(`${Math.round(dist)}m`, x, y + 20);
+      ctx.textAlign = 'left';
+    }
+
+    function drawRadar() {
+      const mapW = 150, mapH = 110, mapX = canvas.width - mapW - 14, mapY = 14;
+      const range = 2200;
+      drawGothicPanel(mapX, mapY, mapW, mapH, 'RADAR');
+      ctx.strokeStyle = 'rgba(157,231,255,0.25)';
+      ctx.beginPath();
+      ctx.moveTo(mapX + mapW / 2, mapY);
+      ctx.lineTo(mapX + mapW / 2, mapY + mapH);
+      ctx.moveTo(mapX, mapY + mapH / 2);
+      ctx.lineTo(mapX + mapW, mapY + mapH / 2);
+      ctx.stroke();
+
+      function plot(entity, color, size) {
+        const dx = entity.x - ship.x;
+        const dy = entity.y - ship.y;
+        if (Math.abs(dx) > range || Math.abs(dy) > range) return;
+        const x = mapX + mapW / 2 + (dx / range) * (mapW / 2);
+        const y = mapY + mapH / 2 + (dy / range) * (mapH / 2);
+        ctx.fillStyle = color;
+        ctx.fillRect(x - size / 2, y - size / 2, size, size);
+      }
+
+      for (const orb of state.xpOrbs) plot(orb, '#7cffd9', 3);
+      for (const relic of state.relics) plot(relic, '#ffd86b', 5);
+      for (const warning of state.spawnWarnings) plot(warning, '#ffd86b', 4);
+      for (const r of state.rocks) plot(r, '#ff5c86', 4);
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(mapX + mapW / 2 - 2, mapY + mapH / 2 - 2, 4, 4);
+      ctx.fillStyle = ART.cyan;
+      ctx.font = '10px Arial';
+    }
+
+    function drawHud() {
+      drawGothicPanel(10, 10, 300, state.combo > 1 ? 224 : 200, 'NEO-ICON GOTHIC HUD');
+      ctx.fillStyle = ART.bone;
+      ctx.font = '16px Arial';
+      ctx.fillText(`Score: ${state.score}`, 24, 40);
+      ctx.fillText(`Lives: ${state.lives}`, 24, 64);
+      ctx.fillText(`Level: ${state.level}`, 24, 88);
+      ctx.fillText(`XP: ${state.xp}/${state.nextLevelXp}`, 24, 112);
+      ctx.fillText(`Core S/G/Spd: ${state.shieldLevel}/${state.gunLevel}/${state.speedLevel}`, 24, 136);
+      ctx.fillText(`Powers B/C/M/N/D: ${state.bladeLevel}/${state.chainLevel}/${state.magnetLevel}/${state.novaLevel}/${state.dashLevel}`, 24, 160);
+      ctx.fillText(`Time: ${Math.floor(state.runTime)}s Auto: ${state.autoFire ? 'ON' : 'OFF'} Dash:${Math.max(0, Math.ceil(state.dashCooldown / 60))}`, 24, 184);
+      if (state.combo > 1) ctx.fillText(`Combo: x${state.combo}`, 24, 208);
+      ctx.fillStyle = ART.cyan;
+      ctx.font = '12px Arial';
+      ctx.fillText(`Biome: ${BIOME_NAMES[biomeIndex()]}`, 24, state.combo > 1 ? 228 : 204);
+      drawRadar();
+
+      if (state.upgradeMenu) {
+        ctx.fillStyle = 'rgba(8, 6, 20, 0.72)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#fff7de';
+        ctx.font = '30px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText('Level Up! Choose Upgrade', canvas.width / 2, canvas.height / 2 - 70);
+        ctx.font = '22px Arial';
+        ctx.fillText(`1) Shield (+1 charge, now ${state.shieldLevel})`, canvas.width / 2, canvas.height / 2 - 32);
+        ctx.fillText(`2) Better Guns (spread/rate, now ${state.gunLevel}/3)`, canvas.width / 2, canvas.height / 2 + 8);
+        ctx.fillText(`3) More Speed (thrust, now ${state.speedLevel}/5)`, canvas.width / 2, canvas.height / 2 + 36);
+        ctx.fillText(`4) Halo Blades (orbit, now ${state.bladeLevel}/5)`, canvas.width / 2, canvas.height / 2 + 70);
+        ctx.fillText(`5) Chain Smite (auto lightning, now ${state.chainLevel}/5)`, canvas.width / 2, canvas.height / 2 + 104);
+        ctx.fillText(`6) Relic Magnet (pickup pull, now ${state.magnetLevel}/5)`, canvas.width / 2, canvas.height / 2 + 138);
+        ctx.fillText(`7) Nova Pulse (radial blast, now ${state.novaLevel}/5)`, canvas.width / 2, canvas.height / 2 + 172);
+        ctx.fillText(`8) Aegis Dash (Shift/E burst, now ${state.dashLevel}/5)`, canvas.width / 2, canvas.height / 2 + 206);
+        ctx.font = '16px Arial';
+        ctx.fillText('Tip: survivor builds stack weapons, passives, and relic drops.', canvas.width / 2, canvas.height / 2 + 242);
+        ctx.textAlign = 'left';
+      } else if (!state.started) {
+        ctx.fillStyle = 'rgba(2, 2, 10, 0.97)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#8ef3ff';
+        ctx.textAlign = 'center';
+        ctx.font = '38px Arial';
+        ctx.fillText('HEAVENFALL PROTOCOL', canvas.width / 2, 112);
+        ctx.font = '14px Arial';
+        ctx.fillStyle = ART.magenta;
+        ctx.fillText(`ART STYLE: ${ART.style.toUpperCase()}`, canvas.width / 2, 140);
+        ctx.fillStyle = '#ffecc2';
+        ctx.font = '20px Arial';
+        state.introScroll += 0.25;
+        state.introPhase += 0.035;
+        const story = [
+          'YEAR 2144 // THE HALO-NET COLLAPSED',
+          'ARCHANGEL SENTRIES WERE REWRITTEN INTO EXECUTION DAEMONS',
+          'THE CELESTIAL BELT FRACTURED INTO BIOMES OF FROST, GOLD, VOID, AND GLASS',
+          'YOU ARE THE INFERNAL PILOT // A HERETIC ENGINE FUSED TO A WARSHIP',
+          'SALVAGE EXP ORBS // ADAPT THROUGH UPGRADES // END THE ORBITAL SCHISM',
+          'ONLY THE FAST SURVIVE. ONLY THE STRANGE ASCEND.'
+        ];
+        ctx.fillStyle = `hsla(${190 + Math.sin(state.introPhase) * 50},100%,75%,0.25)`;
+        for (let i = 0; i < 8; i++) ctx.fillRect(0, 150 + i * 40 + Math.sin(state.introPhase + i) * 6, canvas.width, 2);
+        for (let i = 0; i < story.length; i++) {
+          ctx.fillText(story[i], canvas.width / 2, 200 + i * 34 - (state.introScroll % 180));
+        }
+        const p = Math.max(0, state.launchAnim);
+        if (state.launchAnim > 0) state.launchAnim--;
+        const snX = 120, snY = 390;
+        const r = 28 + (220 - p) * 0.9;
+        ctx.fillStyle = `hsla(${20 + (220 - p) * 0.4},100%,65%,0.28)`;
+        ctx.beginPath(); ctx.arc(snX, snY, r, 0, Math.PI * 2); ctx.fill();
+        ctx.fillStyle = '#ffd08a';
+        ctx.fillRect(snX - 4, snY - 4, 8, 8);
+        const shipX = 170 + (220 - p) * 1.6;
+        const shipY = 390 - (220 - p) * 0.45;
+        ctx.fillStyle = '#ff77b7';
+        ctx.fillRect(shipX, shipY, 10, 4);
+        ctx.fillRect(shipX + 10, shipY + 1, 4, 2);
+        ctx.fillStyle = '#8ee7ff';
+        ctx.fillRect(shipX - 3, shipY + 1, 3, 2);
+        ctx.fillStyle = '#ff7ccf';
+        ctx.font = '26px Arial';
+        ctx.fillText('Press ENTER to Start Game', canvas.width / 2, 430);
+        ctx.textAlign = 'left';
+      } else if (state.deathOverlay > 0) {
+        ctx.fillStyle = 'rgba(0,0,0,0.88)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = '#f3e5c0';
+        ctx.textAlign = 'center';
+        ctx.font = '28px Georgia';
+        ctx.fillText(state.deathQuote, canvas.width / 2, canvas.height / 2);
+        ctx.textAlign = 'left';
+      } else if (state.gameOver) {
+        ctx.fillStyle = 'rgba(16, 8, 28, 0.55)';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+        ctx.fillStyle = state.won ? '#d8ffea' : '#ffd4d4';
+        ctx.font = '44px Arial';
+        ctx.textAlign = 'center';
+        ctx.fillText(state.won ? 'ASCENDED' : 'FALLEN', canvas.width / 2, canvas.height / 2 - 10);
+        ctx.font = '20px Arial';
+        ctx.fillStyle = '#fff7de';
+        ctx.fillText('Press R to restart', canvas.width / 2, canvas.height / 2 + 28);
+        ctx.textAlign = 'left';
+      }
+    }
+
+
+
+
+    function drawAbilities(cam) {
+      if (state.bladeLevel > 0) {
+        const bladeCount = Math.min(6, state.bladeLevel + 1);
+        const orbit = 54 + state.bladeLevel * 8;
+        ctx.shadowColor = ART.gold;
+        ctx.shadowBlur = 10;
+        for (let i = 0; i < bladeCount; i++) {
+          const a = state.beat * 2.8 + (Math.PI * 2 * i) / bladeCount;
+          drawPixelDiamond(ship.x + Math.cos(a) * orbit - cam.x, ship.y + Math.sin(a) * orbit - cam.y, 5, ART.gold);
+        }
+        ctx.shadowBlur = 0;
+      }
+      if (state.chainLevel > 0 && state.chainFlash > 0) {
+        ctx.strokeStyle = `rgba(141, 99, 255, ${state.chainFlash / 12})`;
+        ctx.lineWidth = 2;
+        for (const r of state.rocks.slice(0, state.chainLevel + 1)) {
+          if (Math.hypot(r.x - ship.x, r.y - ship.y) < 720) {
+            ctx.beginPath();
+            ctx.moveTo(ship.x - cam.x, ship.y - cam.y);
+            ctx.lineTo(r.x - cam.x, r.y - cam.y);
+            ctx.stroke();
+          }
+        }
+      }
+      if (state.novaLevel > 0 && state.novaFlash > 0) {
+        const alpha = state.novaFlash / 24;
+        const radius = (145 + state.novaLevel * 48) * (1.08 - alpha * 0.35);
+        ctx.strokeStyle = `rgba(255, 92, 134, ${alpha * 0.75})`;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.arc(ship.x - cam.x, ship.y - cam.y, radius, 0, Math.PI * 2);
+        ctx.stroke();
+        ctx.strokeStyle = `rgba(255, 216, 107, ${alpha * 0.45})`;
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(ship.x - cam.x, ship.y - cam.y, radius * 0.72, 0, Math.PI * 2);
+        ctx.stroke();
+      }
+    }
+
+    function drawPostProcess() {
+      const vignette = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, canvas.width * 0.15, canvas.width / 2, canvas.height / 2, canvas.width * 0.72);
+      vignette.addColorStop(0, 'rgba(0,0,0,0)');
+      vignette.addColorStop(1, 'rgba(0,0,0,0.46)');
+      ctx.fillStyle = vignette;
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+      ctx.fillStyle = 'rgba(255, 245, 207, 0.035)';
+      for (let y = 0; y < canvas.height; y += 4) ctx.fillRect(0, y, canvas.width, 1);
+
+      ctx.strokeStyle = 'rgba(255, 216, 107, 0.5)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(8, 8, canvas.width - 16, canvas.height - 16);
+      ctx.strokeStyle = 'rgba(142, 243, 255, 0.24)';
+      ctx.strokeRect(14, 14, canvas.width - 28, canvas.height - 28);
+
+      ctx.fillStyle = 'rgba(255, 92, 134, 0.7)';
+      ctx.font = '10px Arial';
+      ctx.fillText(ART.style.toUpperCase(), canvas.width - 214, canvas.height - 16);
+    }
+
+    let last = performance.now();
+    function loop(now = performance.now()) {
+      const delta = Math.min(2, (now - last) / 16.6667);
+      last = now;
+      state.dt = delta;
+      update();
+      const cam = camera();
+      if (state.shake > 0) {
+        cam.x += rand(-state.shake, state.shake);
+        cam.y += rand(-state.shake, state.shake);
+      }
+      drawBackground(cam);
+      drawSpawnWarnings(cam);
+      for (const r of state.rocks) if (isOnScreen(r, cam, r.r + 80)) drawAngelRock(r, cam);
+      drawThreatIndicators(cam);
+      drawNearestEnemyGuide(cam);
+      drawParticles(cam);
+      drawFloatingTexts(cam);
+      drawBullets(cam);
+      drawEnemyBullets(cam);
+      drawOrbs(cam);
+      drawRelics(cam);
+      drawAbilities(cam);
+      drawShip(cam);
+      drawPostProcess();
+      drawHud();
+      requestAnimationFrame(loop);
+    }
+
+    addEventListener('keydown', (e) => {
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      state.keys[key] = true;
+      if (e.key === ' ') { e.preventDefault(); shoot(); }
+      if (key === 'f') state.autoFire = !state.autoFire;
+      if (key === 'e' || e.key === 'Shift') dash();
+      if ((e.key === 'r' || e.key === 'R') && state.gameOver) resetGame();
+      if (e.key === 'Enter' && !state.started) { state.started = true; startAudio(); }
+      if (state.upgradeMenu && ['1', '2', '3', '4', '5', '6', '7', '8'].includes(key)) {
+        if (key === '1') state.shieldLevel++;
+        if (key === '2') state.gunLevel = Math.min(3, state.gunLevel + 1);
+        if (key === '3') state.speedLevel = Math.min(5, state.speedLevel + 1);
+        if (key === '4') state.bladeLevel = Math.min(5, state.bladeLevel + 1);
+        if (key === '5') state.chainLevel = Math.min(5, state.chainLevel + 1);
+        if (key === '6') state.magnetLevel = Math.min(5, state.magnetLevel + 1);
+        if (key === '7') state.novaLevel = Math.min(5, state.novaLevel + 1);
+        if (key === '8') state.dashLevel = Math.min(5, state.dashLevel + 1);
+        state.pendingLevelUps--;
+        if (state.pendingLevelUps <= 0) state.upgradeMenu = false;
+      }
+    });
+    addEventListener('keyup', (e) => {
+      const key = e.key.length === 1 ? e.key.toLowerCase() : e.key;
+      state.keys[key] = false;
+    });
+
+    resetGame();
+    loop();
+  </script>
+</body>
+</html>
