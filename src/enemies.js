@@ -1,4 +1,8 @@
-import { rand } from './utils.js';
+import { hit, rand } from './utils.js';
+import { damagePlayer } from './player.js';
+
+const CONTACT_DAMAGE = 10;
+const CONTACT_DAMAGE_INTERVAL = 0.75;
 
 export const enemyTypes = {
   scout: { radius: 14, speed: 75, hp: 2, color: '#fb7185', score: 10 },
@@ -17,11 +21,23 @@ export function spawnEnemy(state, type = 'scout') {
 }
 
 export function updateEnemies(state, dt) {
+  const player = state.player;
+  if (player) {
+    player.contactDamageCooldown = Math.max(0, (player.contactDamageCooldown || 0) - dt);
+  }
+
   for (const enemy of state.enemies) {
     const target = state.player || { x: enemy.x, y: state.height };
     const angle = Math.atan2(target.y - enemy.y, target.x - enemy.x);
     enemy.x += Math.cos(angle) * enemy.speed * dt;
     enemy.y += Math.sin(angle) * enemy.speed * dt;
+
+    // Share protection across enemies so a crowd cannot drain HP in one frame.
+    if (enemy.hp > 0 && player && player.hp > 0 &&
+        player.contactDamageCooldown === 0 && hit(enemy, player)) {
+      damagePlayer(player, CONTACT_DAMAGE);
+      player.contactDamageCooldown = CONTACT_DAMAGE_INTERVAL;
+    }
   }
 
   state.enemies = state.enemies.filter((enemy) => enemy.y < state.height + enemy.radius && enemy.hp > 0);

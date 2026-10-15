@@ -11,6 +11,7 @@ export function createPlayer(state) {
     damage: 1,
     fireRate: 0.18,
     cooldown: 0,
+    contactDamageCooldown: 0,
     upgrades: [],
   };
 }
